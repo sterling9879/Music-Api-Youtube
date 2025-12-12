@@ -27,6 +27,39 @@ from app.config import (
 logger = logging.getLogger(__name__)
 
 
+class JobLogger:
+    """Logger that writes to both console and job-specific log file."""
+
+    def __init__(self, job_dir: Path, job_id: str):
+        self.log_file = job_dir / "logs.txt"
+        self.job_id = job_id
+        self.logs = []
+
+    def _write(self, level: str, message: str):
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{timestamp}] [{level}] {message}"
+        self.logs.append(log_entry)
+
+        # Write to file
+        with open(self.log_file, "a", encoding="utf-8") as f:
+            f.write(log_entry + "\n")
+
+        # Also log to console
+        getattr(logger, level.lower(), logger.info)(f"[{self.job_id}] {message}")
+
+    def info(self, message: str):
+        self._write("INFO", message)
+
+    def warning(self, message: str):
+        self._write("WARNING", message)
+
+    def error(self, message: str):
+        self._write("ERROR", message)
+
+    def debug(self, message: str):
+        self._write("DEBUG", message)
+
+
 def run_async(coro):
     """Helper to run async code in sync context."""
     loop = asyncio.new_event_loop()
@@ -70,6 +103,11 @@ def generate_music_video(
     final_audio_path = job_dir / "final_audio.mp3"
     tracklist_path = job_dir / "tracklist.json"
 
+    # Initialize job logger
+    job_logger = JobLogger(job_dir, job_id)
+    job_logger.info(f"Starting job with prompt: {prompt[:100]}...")
+    job_logger.info(f"Settings: custom_mode={custom_mode}, instrumental={instrumental}, model={model}")
+
     # Initialize progress
     progress = {
         "current_track": 0,
@@ -80,17 +118,49 @@ def generate_music_video(
         "tracks": []
     }
 
+    # Save initial metadata
+    metadata = {
+        "job_id": job_id,
+        "prompt": prompt,
+        "custom_mode": custom_mode,
+        "instrumental": instrumental,
+        "model": model,
+        "style": style,
+        "title": title,
+        "status": "processing",
+        "created_at": datetime.utcnow().isoformat(),
+        "completed_at": None,
+        "total_tracks": 0,
+        "total_duration": "00:00:00",
+        "total_duration_seconds": 0,
+        "video_file": None,
+        "audio_file": None,
+        "tracklist_file": None,
+        "tracks_info": []
+    }
+
+    with open(job_dir / "metadata.json", "w") as f:
+        json.dump(metadata, f, indent=2)
+
     def update_progress(stage: str, message: str, **kwargs):
         """Update task progress."""
         progress["stage"] = stage
         progress["message"] = message
         progress.update(kwargs)
         self.update_state(state="PROGRESS", meta=progress)
+        job_logger.info(f"[{stage}] {message}")
+
+    def save_metadata():
+        """Save current metadata to file."""
+        with open(job_dir / "metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
 
     try:
         # Validate video exists
         if not video_path.exists():
             raise VideoProcessingError(f"Video file not found: {video_path}")
+
+        job_logger.info(f"Video file validated: {video_filename}")
 
         # Initialize services
         kie_service = KieAIService(api_key)
@@ -100,7 +170,11 @@ def generate_music_video(
         target_duration_seconds = TARGET_DURATION_MINUTES * 60
         max_duration_seconds = MAX_DURATION_MINUTES * 60
 
+        job_logger.info(f"Target duration: {TARGET_DURATION_MINUTES} minutes")
+        job_logger.info(f"Max duration: {MAX_DURATION_MINUTES} minutes")
+
         generated_tracks = []
+        tracks_info = []
         total_duration = 0.0
         track_number = 0
 
@@ -123,6 +197,7 @@ def generate_music_video(
 
             try:
                 # Generate music
+                job_logger.info(f"Requesting track {track_number} from Kie AI...")
                 task_id = run_async(
                     kie_service.generate_music(
                         prompt=prompt,
@@ -133,6 +208,8 @@ def generate_music_video(
                         title=f"{title or 'Track'} {track_number}" if title else None
                     )
                 )
+
+                job_logger.info(f"Kie AI task ID: {task_id}")
 
                 update_progress(
                     "generating_audio",
@@ -146,6 +223,8 @@ def generate_music_video(
                 if not tracks_data:
                     raise KieAIError("No tracks returned from API")
 
+                job_logger.info(f"Received {len(tracks_data)} track(s) from Kie AI")
+
                 # Process each track from the response (API returns multiple variations)
                 for track_data in tracks_data:
                     audio_url = track_data.get("audioUrl") or track_data.get("audio_url")
@@ -154,18 +233,35 @@ def generate_music_video(
                     track_id = track_data.get("id", "")
 
                     if not audio_url:
+                        job_logger.warning(f"Track {track_number} has no audio URL, skipping")
                         continue
 
                     # Check if adding this track would exceed max duration
                     if total_duration + track_duration > max_duration_seconds:
-                        logger.info(f"Reached max duration, stopping generation")
+                        job_logger.info(f"Reached max duration, stopping generation")
                         break
 
                     # Download the track
                     track_file = tracks_dir / f"track_{track_number:03d}.mp3"
+                    job_logger.info(f"Downloading track {track_number}: {audio_url[:50]}...")
                     run_async(kie_service.download_audio(audio_url, track_file))
 
                     generated_tracks.append((track_file, track_title, track_id))
+
+                    # Store track info for metadata
+                    track_info = {
+                        "track_number": track_number,
+                        "filename": f"track_{track_number:03d}.mp3",
+                        "title": track_title,
+                        "kie_track_id": track_id,
+                        "duration_seconds": track_duration,
+                        "duration_formatted": format_duration(track_duration),
+                        "downloaded_at": datetime.utcnow().isoformat()
+                    }
+                    tracks_info.append(track_info)
+                    metadata["tracks_info"] = tracks_info
+                    save_metadata()
+
                     total_duration += track_duration
 
                     update_progress(
@@ -176,20 +272,22 @@ def generate_music_video(
                         total_duration_formatted=format_duration(total_duration)
                     )
 
-                    logger.info(
-                        f"Track {track_number} downloaded. "
-                        f"Total duration: {format_duration(total_duration)}"
+                    job_logger.info(
+                        f"Track {track_number} saved: {track_title} "
+                        f"(duration: {format_duration(track_duration)}, "
+                        f"total: {format_duration(total_duration)})"
                     )
 
                     # Check if we've reached target
                     if total_duration >= target_duration_seconds:
+                        job_logger.info("Target duration reached!")
                         break
 
                     # Only use first track from each generation
                     break
 
             except KieAIError as e:
-                logger.error(f"Kie AI error on track {track_number}: {e}")
+                job_logger.error(f"Kie AI error on track {track_number}: {e}")
                 if "Insufficient credits" in str(e) or "Invalid API key" in str(e):
                     raise
                 # Continue with next track for other errors
@@ -198,7 +296,7 @@ def generate_music_video(
         if not generated_tracks:
             raise KieAIError("No tracks were successfully generated")
 
-        logger.info(f"Generated {len(generated_tracks)} tracks, total duration: {format_duration(total_duration)}")
+        job_logger.info(f"Audio generation complete: {len(generated_tracks)} tracks, {format_duration(total_duration)}")
 
         # Concatenate audio
         update_progress(
@@ -209,13 +307,16 @@ def generate_music_video(
             total_duration_formatted=format_duration(total_duration)
         )
 
+        job_logger.info("Starting audio concatenation...")
         audio_result = audio_processor.concatenate_audio_files(
             generated_tracks,
             final_audio_path
         )
+        job_logger.info(f"Audio concatenated: {audio_result.total_duration_formatted}")
 
         # Generate tracklist
         audio_processor.generate_tracklist_json(audio_result, tracklist_path)
+        job_logger.info("Tracklist generated")
 
         # Process video
         update_progress(
@@ -226,34 +327,38 @@ def generate_music_video(
             total_duration_formatted=audio_result.total_duration_formatted
         )
 
+        job_logger.info(f"Starting video processing (target: {audio_result.total_duration_formatted})...")
         video_processor.process_video_with_audio(
             video_path,
             final_audio_path,
             audio_result.total_duration_seconds,
             final_video_path
         )
+        job_logger.info("Video processing complete")
 
-        # Save job metadata
-        metadata = {
-            "job_id": job_id,
-            "prompt": prompt,
-            "created_at": datetime.utcnow().isoformat(),
+        # Update final metadata
+        metadata.update({
+            "status": "completed",
             "completed_at": datetime.utcnow().isoformat(),
             "total_tracks": len(generated_tracks),
             "total_duration": audio_result.total_duration_formatted,
             "total_duration_seconds": audio_result.total_duration_seconds,
-            "video_file": str(final_video_path),
-            "audio_file": str(final_audio_path),
-            "tracklist_file": str(tracklist_path)
-        }
+            "video_file": "final_video.mp4",
+            "audio_file": "final_audio.mp3",
+            "tracklist_file": "tracklist.json"
+        })
+        save_metadata()
 
-        with open(job_dir / "metadata.json", "w") as f:
-            json.dump(metadata, f, indent=2)
-
-        # Cleanup tracks directory
-        shutil.rmtree(tracks_dir, ignore_errors=True)
+        # Cleanup work directories (but keep tracks!)
         shutil.rmtree(job_dir / "audio_work", ignore_errors=True)
         shutil.rmtree(job_dir / "video_work", ignore_errors=True)
+
+        job_logger.info("=" * 50)
+        job_logger.info("JOB COMPLETED SUCCESSFULLY")
+        job_logger.info(f"Total tracks: {len(generated_tracks)}")
+        job_logger.info(f"Total duration: {audio_result.total_duration_formatted}")
+        job_logger.info(f"Output: {final_video_path}")
+        job_logger.info("=" * 50)
 
         # Update final progress
         final_progress = {
@@ -270,19 +375,28 @@ def generate_music_video(
         return final_progress
 
     except SoftTimeLimitExceeded:
-        logger.error(f"Task {job_id} exceeded time limit")
+        job_logger.error("Task exceeded time limit")
+        metadata["status"] = "failed"
+        metadata["error"] = "Task exceeded time limit"
+        save_metadata()
         update_progress("failed", "Task exceeded time limit")
         raise
 
     except (KieAIError, AudioProcessingError, VideoProcessingError) as e:
-        logger.error(f"Task {job_id} failed: {e}")
+        job_logger.error(f"Task failed: {e}")
+        metadata["status"] = "failed"
+        metadata["error"] = str(e)
+        save_metadata()
         progress["stage"] = "failed"
         progress["message"] = str(e)
         self.update_state(state=states.FAILURE, meta=progress)
         raise
 
     except Exception as e:
-        logger.exception(f"Unexpected error in task {job_id}")
+        job_logger.error(f"Unexpected error: {str(e)}")
+        metadata["status"] = "failed"
+        metadata["error"] = f"Unexpected error: {str(e)}"
+        save_metadata()
         progress["stage"] = "failed"
         progress["message"] = f"Unexpected error: {str(e)}"
         self.update_state(state=states.FAILURE, meta=progress)
@@ -303,7 +417,7 @@ def cleanup_old_files():
 
     # Clean upload directory
     for file_path in UPLOAD_DIR.iterdir():
-        if file_path.is_file():
+        if file_path.is_file() and file_path.name != ".gitkeep":
             file_age = current_time - file_path.stat().st_mtime
             if file_age > retention_seconds:
                 try:

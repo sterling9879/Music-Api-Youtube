@@ -16,6 +16,7 @@
             --text-muted: #94a3b8;
             --error: #ef4444;
             --warning: #f59e0b;
+            --success: #10b981;
         }
 
         * {
@@ -33,14 +34,14 @@
         }
 
         .container {
-            max-width: 800px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 2rem;
         }
 
         header {
             text-align: center;
-            margin-bottom: 3rem;
+            margin-bottom: 2rem;
         }
 
         h1 {
@@ -57,12 +58,62 @@
             font-size: 1.1rem;
         }
 
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            border-bottom: 2px solid var(--surface-light);
+            padding-bottom: 0.5rem;
+        }
+
+        .tab-btn {
+            padding: 0.75rem 1.5rem;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 1rem;
+            border-radius: 8px 8px 0 0;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            color: var(--text);
+            background: var(--surface);
+        }
+
+        .tab-btn.active {
+            color: var(--primary);
+            background: var(--surface);
+            font-weight: 600;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
         .card {
             background: var(--surface);
             border-radius: 16px;
-            padding: 2rem;
+            padding: 1.5rem;
             margin-bottom: 1.5rem;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .card-header h2 {
+            font-size: 1.25rem;
         }
 
         .form-group {
@@ -189,7 +240,7 @@
             align-items: center;
             justify-content: center;
             gap: 0.5rem;
-            padding: 1rem 2rem;
+            padding: 0.75rem 1.5rem;
             font-size: 1rem;
             font-weight: 600;
             border: none;
@@ -201,7 +252,6 @@
         .btn-primary {
             background: linear-gradient(135deg, var(--primary), var(--primary-dark));
             color: white;
-            width: 100%;
         }
 
         .btn-primary:hover:not(:disabled) {
@@ -223,20 +273,21 @@
             background: var(--text-muted);
         }
 
-        .progress-section {
-            display: none;
+        .btn-sm {
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
         }
 
-        .progress-section.active {
-            display: block;
+        .btn-danger {
+            background: var(--error);
+            color: white;
         }
 
-        .progress-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 1rem;
+        .btn-full {
+            width: 100%;
         }
 
+        /* Progress Section */
         .progress-bar-container {
             height: 8px;
             background: var(--surface-light);
@@ -298,18 +349,12 @@
             border-left: 4px solid var(--error);
         }
 
-        .download-section {
-            display: none;
-        }
-
-        .download-section.active {
-            display: block;
-        }
-
+        /* Download buttons */
         .download-buttons {
             display: flex;
             gap: 1rem;
             flex-wrap: wrap;
+            margin-bottom: 1.5rem;
         }
 
         .download-btn {
@@ -335,40 +380,130 @@
             margin-bottom: 0.5rem;
         }
 
-        .tracklist {
-            margin-top: 1.5rem;
-        }
-
-        .tracklist h3 {
-            margin-bottom: 1rem;
-        }
-
-        .tracklist-table {
+        /* History Table */
+        .history-table {
             width: 100%;
             border-collapse: collapse;
         }
 
-        .tracklist-table th,
-        .tracklist-table td {
-            padding: 0.75rem;
+        .history-table th,
+        .history-table td {
+            padding: 1rem;
             text-align: left;
             border-bottom: 1px solid var(--surface-light);
         }
 
-        .tracklist-table th {
+        .history-table th {
             color: var(--text-muted);
+            font-weight: 500;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+
+        .history-table tr:hover {
+            background: var(--surface-light);
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-badge.completed {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+        }
+
+        .status-badge.processing {
+            background: rgba(99, 102, 241, 0.2);
+            color: var(--primary);
+        }
+
+        .status-badge.failed {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--error);
+        }
+
+        /* Tracks List */
+        .tracks-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .track-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            background: var(--surface-light);
+            border-radius: 8px;
+        }
+
+        .track-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .track-number {
+            width: 2rem;
+            height: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--primary);
+            border-radius: 50%;
+            font-weight: 600;
+            font-size: 0.875rem;
+        }
+
+        .track-details {
+            flex: 1;
+        }
+
+        .track-title {
             font-weight: 500;
         }
 
-        .alert {
-            padding: 1rem;
-            border-radius: 8px;
-            margin-bottom: 1rem;
+        .track-duration {
+            color: var(--text-muted);
+            font-size: 0.85rem;
         }
 
-        .alert-warning {
-            background: rgba(245, 158, 11, 0.2);
-            border-left: 4px solid var(--warning);
+        /* Logs */
+        .logs-container {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 1rem;
+            max-height: 500px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+
+        .log-line {
+            margin: 0;
+            padding: 0.125rem 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .log-line.info {
+            color: #58a6ff;
+        }
+
+        .log-line.warning {
+            color: #d29922;
+        }
+
+        .log-line.error {
+            color: #f85149;
         }
 
         .api-key-section {
@@ -396,6 +531,83 @@
             to { transform: rotate(360deg); }
         }
 
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+
+        .job-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .refresh-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 4px;
+        }
+
+        .refresh-btn:hover {
+            color: var(--text);
+            background: var(--surface-light);
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 2rem;
+            max-width: 900px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        .modal-close:hover {
+            color: var(--text);
+        }
+
         footer {
             text-align: center;
             padding: 2rem;
@@ -404,6 +616,10 @@
 
         footer a {
             color: var(--primary);
+        }
+
+        .hidden {
+            display: none !important;
         }
     </style>
 </head>
@@ -414,160 +630,188 @@
             <p class="subtitle">Create 2-hour music videos with AI-generated music</p>
         </header>
 
-        <!-- Generation Form -->
-        <div id="form-section" class="card">
-            <form id="generate-form">
-                <!-- API Key -->
-                <div class="api-key-section">
-                    <label for="api-key">Kie AI API Key <span class="label-hint">(Required)</span></label>
-                    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 0.5rem;">
-                        Get your API key at <a href="https://kie.ai/api-key" target="_blank">kie.ai/api-key</a>
-                    </p>
-                    <input type="password" id="api-key" name="api_key" placeholder="Enter your Kie AI API key" required>
-                </div>
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="generate">Generate</button>
+            <button class="tab-btn" data-tab="history">History</button>
+        </div>
 
-                <!-- Music Prompt -->
-                <div class="form-group">
-                    <label for="prompt">Music Prompt <span class="label-hint">(Describe the music you want)</span></label>
-                    <textarea id="prompt" name="prompt" placeholder="Example: A calm and relaxing piano track with soft melodies, perfect for meditation and studying. Ambient atmosphere with gentle strings in the background." required maxlength="500"></textarea>
-                    <small style="color: var(--text-muted);">Max 500 characters</small>
-                </div>
-
-                <!-- Video Upload -->
-                <div class="form-group">
-                    <label>Video File <span class="label-hint">(Will be looped to match audio duration)</span></label>
-                    <div class="file-upload" id="file-drop-zone">
-                        <input type="file" id="video-file" name="video" accept=".mp4,.mov,.avi,.mkv,.webm" required>
-                        <div class="file-upload-icon">📁</div>
-                        <div class="file-upload-text">Drop video here or click to browse</div>
-                        <div class="file-name" id="file-name"></div>
+        <!-- Generate Tab -->
+        <div id="generate-tab" class="tab-content active">
+            <!-- Generation Form -->
+            <div id="form-section" class="card">
+                <form id="generate-form">
+                    <!-- API Key -->
+                    <div class="api-key-section">
+                        <label for="api-key">Kie AI API Key <span class="label-hint">(Required)</span></label>
+                        <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 0.5rem;">
+                            Get your API key at <a href="https://kie.ai/api-key" target="_blank">kie.ai/api-key</a>
+                        </p>
+                        <input type="password" id="api-key" name="api_key" placeholder="Enter your Kie AI API key" required>
                     </div>
-                    <small style="color: var(--text-muted);">Supported: MP4, MOV, AVI, MKV, WebM (Max 500MB)</small>
-                </div>
 
-                <!-- Options -->
-                <div class="form-group">
-                    <label>Generation Options</label>
-                    <div class="checkbox-group">
-                        <label class="checkbox-item">
-                            <input type="checkbox" id="instrumental" name="instrumental" checked>
-                            <span>Instrumental (no vocals)</span>
-                        </label>
-                        <label class="checkbox-item">
-                            <input type="checkbox" id="custom-mode" name="custom_mode">
-                            <span>Custom Mode (advanced)</span>
-                        </label>
-                    </div>
-                </div>
-
-                <!-- Advanced Options (shown when custom mode is enabled) -->
-                <div id="advanced-options" style="display: none;">
-                    <div class="row">
-                        <div class="form-group">
-                            <label for="model">AI Model</label>
-                            <select id="model" name="model">
-                                <option value="V4">V4 (Standard)</option>
-                                <option value="V4_5">V4.5 (Enhanced)</option>
-                                <option value="V4_5PLUS">V4.5 Plus (8 min songs)</option>
-                                <option value="V5">V5 (Latest)</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="style">Music Style</label>
-                            <input type="text" id="style" name="style" placeholder="e.g., Classical, Jazz, Electronic">
-                        </div>
-                    </div>
+                    <!-- Music Prompt -->
                     <div class="form-group">
-                        <label for="title">Track Title Prefix</label>
-                        <input type="text" id="title" name="title" placeholder="e.g., Relaxing Piano" maxlength="80">
+                        <label for="prompt">Music Prompt <span class="label-hint">(Describe the music you want)</span></label>
+                        <textarea id="prompt" name="prompt" placeholder="Example: A calm and relaxing piano track with soft melodies, perfect for meditation and studying. Ambient atmosphere with gentle strings in the background." required maxlength="500"></textarea>
+                        <small style="color: var(--text-muted);">Max 500 characters</small>
+                    </div>
+
+                    <!-- Video Upload -->
+                    <div class="form-group">
+                        <label>Video File <span class="label-hint">(Will be looped to match audio duration)</span></label>
+                        <div class="file-upload" id="file-drop-zone">
+                            <input type="file" id="video-file" name="video" accept=".mp4,.mov,.avi,.mkv,.webm" required>
+                            <div class="file-upload-icon">📁</div>
+                            <div class="file-upload-text">Drop video here or click to browse</div>
+                            <div class="file-name" id="file-name"></div>
+                        </div>
+                        <small style="color: var(--text-muted);">Supported: MP4, MOV, AVI, MKV, WebM (Max 500MB)</small>
+                    </div>
+
+                    <!-- Options -->
+                    <div class="form-group">
+                        <label>Generation Options</label>
+                        <div class="checkbox-group">
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="instrumental" name="instrumental" checked>
+                                <span>Instrumental (no vocals)</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="custom-mode" name="custom_mode">
+                                <span>Custom Mode (advanced)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Advanced Options -->
+                    <div id="advanced-options" style="display: none;">
+                        <div class="row">
+                            <div class="form-group">
+                                <label for="model">AI Model</label>
+                                <select id="model" name="model">
+                                    <option value="V4">V4 (Standard)</option>
+                                    <option value="V4_5">V4.5 (Enhanced)</option>
+                                    <option value="V4_5PLUS">V4.5 Plus (8 min songs)</option>
+                                    <option value="V5">V5 (Latest)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="style">Music Style</label>
+                                <input type="text" id="style" name="style" placeholder="e.g., Classical, Jazz, Electronic">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="title">Track Title Prefix</label>
+                            <input type="text" id="title" name="title" placeholder="e.g., Relaxing Piano" maxlength="80">
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-full" id="submit-btn">
+                        <span id="submit-text">Generate Music Video</span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Progress Section -->
+            <div id="progress-section" class="card hidden">
+                <div class="card-header">
+                    <h2>Generation Progress</h2>
+                    <span id="job-id" style="color: var(--text-muted); font-size: 0.85rem;"></span>
+                </div>
+
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progress-bar"></div>
+                </div>
+
+                <div class="progress-info">
+                    <div class="progress-stat">
+                        <div class="progress-stat-value" id="track-count">0</div>
+                        <div class="progress-stat-label">Tracks Generated</div>
+                    </div>
+                    <div class="progress-stat">
+                        <div class="progress-stat-value" id="duration">00:00:00</div>
+                        <div class="progress-stat-label">Total Duration</div>
+                    </div>
+                    <div class="progress-stat">
+                        <div class="progress-stat-value" id="stage">Starting</div>
+                        <div class="progress-stat-label">Current Stage</div>
                     </div>
                 </div>
 
-                <button type="submit" class="btn btn-primary" id="submit-btn">
-                    <span id="submit-text">Generate Music Video</span>
+                <div class="status-message info" id="status-message">
+                    Initializing generation...
+                </div>
+
+                <!-- Logs during progress -->
+                <div style="margin-top: 1rem;">
+                    <button class="btn btn-secondary btn-sm" onclick="toggleProgressLogs()">
+                        Show Logs
+                    </button>
+                    <div id="progress-logs" class="logs-container hidden" style="margin-top: 1rem; max-height: 200px;">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Download Section -->
+            <div id="download-section" class="card hidden">
+                <h2>Your Video is Ready!</h2>
+                <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Download your generated music video and related files below.</p>
+
+                <div class="download-buttons">
+                    <a href="#" class="download-btn" id="download-video">
+                        <span class="download-btn-icon">🎬</span>
+                        <span>Download Video</span>
+                    </a>
+                    <a href="#" class="download-btn" id="download-audio">
+                        <span class="download-btn-icon">🎵</span>
+                        <span>Download Audio</span>
+                    </a>
+                    <a href="#" class="download-btn" id="download-tracklist">
+                        <span class="download-btn-icon">📋</span>
+                        <span>Download Tracklist</span>
+                    </a>
+                </div>
+
+                <!-- Individual Tracks -->
+                <div style="margin-top: 1.5rem;">
+                    <h3 style="margin-bottom: 1rem;">Individual Tracks</h3>
+                    <div id="tracks-list" class="tracks-list">
+                    </div>
+                </div>
+
+                <button class="btn btn-secondary" onclick="resetForm()" style="margin-top: 1.5rem;">
+                    Generate Another Video
                 </button>
-            </form>
-        </div>
-
-        <!-- Progress Section -->
-        <div id="progress-section" class="card progress-section">
-            <div class="progress-header">
-                <h2>Generation Progress</h2>
-                <span id="job-id" style="color: var(--text-muted); font-size: 0.85rem;"></span>
             </div>
 
-            <div class="progress-bar-container">
-                <div class="progress-bar" id="progress-bar"></div>
-            </div>
-
-            <div class="progress-info">
-                <div class="progress-stat">
-                    <div class="progress-stat-value" id="track-count">0</div>
-                    <div class="progress-stat-label">Tracks Generated</div>
-                </div>
-                <div class="progress-stat">
-                    <div class="progress-stat-value" id="duration">00:00:00</div>
-                    <div class="progress-stat-label">Total Duration</div>
-                </div>
-                <div class="progress-stat">
-                    <div class="progress-stat-value" id="stage">Starting</div>
-                    <div class="progress-stat-label">Current Stage</div>
-                </div>
-            </div>
-
-            <div class="status-message info" id="status-message">
-                Initializing generation...
+            <!-- Error Section -->
+            <div id="error-section" class="card hidden">
+                <h2 style="color: var(--error);">Generation Failed</h2>
+                <p id="error-message" style="color: var(--text-muted); margin: 1rem 0;"></p>
+                <button class="btn btn-secondary" onclick="resetForm()">
+                    Try Again
+                </button>
             </div>
         </div>
 
-        <!-- Download Section -->
-        <div id="download-section" class="card download-section">
-            <h2>Your Video is Ready!</h2>
-            <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Download your generated music video and related files below.</p>
+        <!-- History Tab -->
+        <div id="history-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Generation History</h2>
+                    <button class="refresh-btn" onclick="loadHistory()" title="Refresh">
+                        🔄
+                    </button>
+                </div>
 
-            <div class="download-buttons">
-                <a href="#" class="download-btn" id="download-video">
-                    <span class="download-btn-icon">🎬</span>
-                    <span>Download Video</span>
-                </a>
-                <a href="#" class="download-btn" id="download-audio">
-                    <span class="download-btn-icon">🎵</span>
-                    <span>Download Audio</span>
-                </a>
-                <a href="#" class="download-btn" id="download-tracklist">
-                    <span class="download-btn-icon">📋</span>
-                    <span>Download Tracklist</span>
-                </a>
+                <div id="history-container">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📂</div>
+                        <p>No generation history yet</p>
+                    </div>
+                </div>
             </div>
-
-            <div class="tracklist" id="tracklist-section">
-                <h3>Tracklist</h3>
-                <table class="tracklist-table">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Start</th>
-                            <th>End</th>
-                            <th>Duration</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tracklist-body">
-                    </tbody>
-                </table>
-            </div>
-
-            <button class="btn btn-secondary" onclick="resetForm()" style="margin-top: 1.5rem;">
-                Generate Another Video
-            </button>
-        </div>
-
-        <!-- Error Section -->
-        <div id="error-section" class="card" style="display: none;">
-            <h2 style="color: var(--error);">Generation Failed</h2>
-            <p id="error-message" style="color: var(--text-muted); margin: 1rem 0;"></p>
-            <button class="btn btn-secondary" onclick="resetForm()">
-                Try Again
-            </button>
         </div>
 
         <footer>
@@ -575,10 +819,23 @@
         </footer>
     </div>
 
+    <!-- Job Details Modal -->
+    <div id="job-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Job Details</h2>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div id="modal-body">
+            </div>
+        </div>
+    </div>
+
     <script>
         // State
         let currentJobId = null;
         let statusInterval = null;
+        let logsInterval = null;
 
         // DOM elements
         const form = document.getElementById('generate-form');
@@ -593,6 +850,20 @@
         const customModeCheckbox = document.getElementById('custom-mode');
         const advancedOptions = document.getElementById('advanced-options');
         const dropZone = document.getElementById('file-drop-zone');
+
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById(`${btn.dataset.tab}-tab`).classList.add('active');
+
+                if (btn.dataset.tab === 'history') {
+                    loadHistory();
+                }
+            });
+        });
 
         // Toggle advanced options
         customModeCheckbox.addEventListener('change', (e) => {
@@ -676,6 +947,7 @@
                 showProgressSection();
                 document.getElementById('job-id').textContent = `Job ID: ${currentJobId}`;
                 startStatusPolling();
+                startLogsPolling();
 
             } catch (error) {
                 alert('Error: ' + error.message);
@@ -687,7 +959,11 @@
         // Status polling
         function startStatusPolling() {
             statusInterval = setInterval(checkStatus, 5000);
-            checkStatus(); // Initial check
+            checkStatus();
+        }
+
+        function startLogsPolling() {
+            logsInterval = setInterval(fetchLogs, 3000);
         }
 
         async function checkStatus() {
@@ -699,7 +975,6 @@
 
                 if (!response.ok) {
                     if (response.status === 404) {
-                        // Job not found yet, might still be initializing
                         return;
                     }
                     throw new Error(data.detail || 'Failed to get status');
@@ -709,9 +984,12 @@
 
                 if (data.status === 'completed') {
                     clearInterval(statusInterval);
+                    clearInterval(logsInterval);
+                    await loadTracks();
                     showDownloadSection(data);
                 } else if (data.status === 'failed') {
                     clearInterval(statusInterval);
+                    clearInterval(logsInterval);
                     showError(data.error || 'Generation failed');
                 }
 
@@ -720,35 +998,59 @@
             }
         }
 
+        async function fetchLogs() {
+            if (!currentJobId) return;
+
+            try {
+                const response = await fetch(`/jobs/${currentJobId}/logs?tail=50`);
+                if (response.ok) {
+                    const logs = await response.text();
+                    const logsContainer = document.getElementById('progress-logs');
+                    logsContainer.innerHTML = formatLogs(logs);
+                    logsContainer.scrollTop = logsContainer.scrollHeight;
+                }
+            } catch (error) {
+                console.error('Logs fetch error:', error);
+            }
+        }
+
+        function formatLogs(logs) {
+            return logs.split('\n').map(line => {
+                let className = 'info';
+                if (line.includes('[ERROR]')) className = 'error';
+                else if (line.includes('[WARNING]')) className = 'warning';
+                return `<p class="log-line ${className}">${escapeHtml(line)}</p>`;
+            }).join('');
+        }
+
+        function toggleProgressLogs() {
+            const logsContainer = document.getElementById('progress-logs');
+            logsContainer.classList.toggle('hidden');
+        }
+
         function updateProgress(data) {
             const progress = data.progress || {};
 
-            // Update track count
             document.getElementById('track-count').textContent = progress.current_track || 0;
-
-            // Update duration
             document.getElementById('duration').textContent = progress.total_duration_formatted || '00:00:00';
 
-            // Update stage
             const stageMap = {
                 'initializing': 'Starting',
                 'generating_audio': 'Generating',
                 'concatenating_audio': 'Combining',
                 'processing_video': 'Processing',
                 'combining': 'Finalizing',
-                'completed': 'Done!'
+                'completed': 'Done!',
+                'failed': 'Failed'
             };
             document.getElementById('stage').textContent = stageMap[progress.stage] || progress.stage;
-
-            // Update message
             document.getElementById('status-message').textContent = progress.message || 'Processing...';
 
-            // Update progress bar (estimate based on duration)
-            const targetSeconds = 110 * 60; // 110 minutes target
+            // Update progress bar
+            const targetSeconds = 110 * 60;
             const currentSeconds = progress.total_duration_seconds || 0;
             let progressPercent = Math.min((currentSeconds / targetSeconds) * 100, 100);
 
-            // Add some progress for video processing stages
             if (progress.stage === 'concatenating_audio') progressPercent = Math.max(progressPercent, 80);
             if (progress.stage === 'processing_video') progressPercent = Math.max(progressPercent, 90);
             if (progress.stage === 'combining') progressPercent = Math.max(progressPercent, 95);
@@ -757,43 +1059,60 @@
             document.getElementById('progress-bar').style.width = `${progressPercent}%`;
         }
 
-        function showProgressSection() {
-            formSection.style.display = 'none';
-            progressSection.classList.add('active');
-            downloadSection.classList.remove('active');
-            errorSection.style.display = 'none';
-        }
+        async function loadTracks() {
+            if (!currentJobId) return;
 
-        function showDownloadSection(data) {
-            progressSection.classList.remove('active');
-            downloadSection.classList.add('active');
-
-            // Set download links
-            document.getElementById('download-video').href = `/download/${currentJobId}/video`;
-            document.getElementById('download-audio').href = `/download/${currentJobId}/audio`;
-            document.getElementById('download-tracklist').href = `/download/${currentJobId}/tracklist`;
-
-            // Populate tracklist
-            if (data.tracklist && data.tracklist.tracks) {
-                const tbody = document.getElementById('tracklist-body');
-                tbody.innerHTML = '';
-
-                data.tracklist.tracks.forEach(track => {
-                    const row = document.createElement('tr');
-                    row.innerHTML = `
-                        <td>${track.id}</td>
-                        <td>${track.start}</td>
-                        <td>${track.end}</td>
-                        <td>${track.duration}</td>
-                    `;
-                    tbody.appendChild(row);
-                });
+            try {
+                const response = await fetch(`/jobs/${currentJobId}/tracks`);
+                if (response.ok) {
+                    const data = await response.json();
+                    renderTracks(data.tracks);
+                }
+            } catch (error) {
+                console.error('Error loading tracks:', error);
             }
         }
 
+        function renderTracks(tracks) {
+            const container = document.getElementById('tracks-list');
+            if (!tracks || tracks.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-muted);">No individual tracks available</p>';
+                return;
+            }
+
+            container.innerHTML = tracks.map(track => `
+                <div class="track-item">
+                    <div class="track-info">
+                        <div class="track-number">${track.track_number}</div>
+                        <div class="track-details">
+                            <div class="track-title">${escapeHtml(track.title)}</div>
+                            <div class="track-duration">${track.duration_formatted} | ${track.size_mb} MB</div>
+                        </div>
+                    </div>
+                    <a href="${track.download_url}" class="btn btn-secondary btn-sm" download>Download</a>
+                </div>
+            `).join('');
+        }
+
+        function showProgressSection() {
+            formSection.classList.add('hidden');
+            progressSection.classList.remove('hidden');
+            downloadSection.classList.add('hidden');
+            errorSection.classList.add('hidden');
+        }
+
+        function showDownloadSection(data) {
+            progressSection.classList.add('hidden');
+            downloadSection.classList.remove('hidden');
+
+            document.getElementById('download-video').href = `/download/${currentJobId}/video`;
+            document.getElementById('download-audio').href = `/download/${currentJobId}/audio`;
+            document.getElementById('download-tracklist').href = `/download/${currentJobId}/tracklist`;
+        }
+
         function showError(message) {
-            progressSection.classList.remove('active');
-            errorSection.style.display = 'block';
+            progressSection.classList.add('hidden');
+            errorSection.classList.remove('hidden');
             document.getElementById('error-message').textContent = message;
         }
 
@@ -803,30 +1122,217 @@
                 clearInterval(statusInterval);
                 statusInterval = null;
             }
+            if (logsInterval) {
+                clearInterval(logsInterval);
+                logsInterval = null;
+            }
 
-            formSection.style.display = 'block';
-            progressSection.classList.remove('active');
-            downloadSection.classList.remove('active');
-            errorSection.style.display = 'none';
+            formSection.classList.remove('hidden');
+            progressSection.classList.add('hidden');
+            downloadSection.classList.add('hidden');
+            errorSection.classList.add('hidden');
 
             form.reset();
             fileName.textContent = '';
             submitBtn.disabled = false;
             submitText.textContent = 'Generate Music Video';
 
-            // Reset progress display
             document.getElementById('progress-bar').style.width = '0%';
             document.getElementById('track-count').textContent = '0';
             document.getElementById('duration').textContent = '00:00:00';
             document.getElementById('stage').textContent = 'Starting';
+            document.getElementById('progress-logs').innerHTML = '';
         }
 
+        // History functions
+        async function loadHistory() {
+            const container = document.getElementById('history-container');
+            container.innerHTML = '<p style="text-align: center; color: var(--text-muted);">Loading...</p>';
+
+            try {
+                const response = await fetch('/jobs?limit=50');
+                const data = await response.json();
+
+                if (data.jobs.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📂</div>
+                            <p>No generation history yet</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = `
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Prompt</th>
+                                <th>Status</th>
+                                <th>Tracks</th>
+                                <th>Duration</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.jobs.map(job => `
+                                <tr>
+                                    <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                        ${escapeHtml(job.prompt || 'N/A')}
+                                    </td>
+                                    <td>
+                                        <span class="status-badge ${job.status}">${job.status}</span>
+                                    </td>
+                                    <td>${job.total_tracks || 0}</td>
+                                    <td>${job.total_duration || '00:00:00'}</td>
+                                    <td>${formatDate(job.created_at)}</td>
+                                    <td>
+                                        <div class="job-actions">
+                                            <button class="btn btn-secondary btn-sm" onclick="viewJob('${job.job_id}')">View</button>
+                                            <button class="btn btn-danger btn-sm" onclick="deleteJob('${job.job_id}')">Delete</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">❌</div>
+                        <p>Failed to load history</p>
+                    </div>
+                `;
+            }
+        }
+
+        async function viewJob(jobId) {
+            const modal = document.getElementById('job-modal');
+            const modalBody = document.getElementById('modal-body');
+            modalBody.innerHTML = '<p>Loading...</p>';
+            modal.classList.add('active');
+
+            try {
+                const [jobResponse, tracksResponse, logsResponse] = await Promise.all([
+                    fetch(`/jobs/${jobId}`),
+                    fetch(`/jobs/${jobId}/tracks`),
+                    fetch(`/jobs/${jobId}/logs`).catch(() => ({ ok: false }))
+                ]);
+
+                const job = await jobResponse.json();
+                const tracks = tracksResponse.ok ? await tracksResponse.json() : { tracks: [] };
+                const logs = logsResponse.ok ? await logsResponse.text() : 'No logs available';
+
+                modalBody.innerHTML = `
+                    <div style="margin-bottom: 1.5rem;">
+                        <h3 style="margin-bottom: 0.5rem;">Job Information</h3>
+                        <p><strong>Job ID:</strong> ${job.job_id}</p>
+                        <p><strong>Status:</strong> <span class="status-badge ${job.status}">${job.status}</span></p>
+                        <p><strong>Prompt:</strong> ${escapeHtml(job.prompt || 'N/A')}</p>
+                        <p><strong>Model:</strong> ${job.model || 'V4'}</p>
+                        <p><strong>Created:</strong> ${formatDate(job.created_at)}</p>
+                        ${job.completed_at ? `<p><strong>Completed:</strong> ${formatDate(job.completed_at)}</p>` : ''}
+                        <p><strong>Total Duration:</strong> ${job.total_duration || '00:00:00'}</p>
+                        ${job.video_size_mb ? `<p><strong>Video Size:</strong> ${job.video_size_mb} MB</p>` : ''}
+                    </div>
+
+                    ${job.status === 'completed' ? `
+                        <div style="margin-bottom: 1.5rem;">
+                            <h3 style="margin-bottom: 0.5rem;">Downloads</h3>
+                            <div class="download-buttons">
+                                <a href="/download/${jobId}/video" class="download-btn" download>
+                                    <span class="download-btn-icon">🎬</span>
+                                    <span>Video</span>
+                                </a>
+                                <a href="/download/${jobId}/audio" class="download-btn" download>
+                                    <span class="download-btn-icon">🎵</span>
+                                    <span>Audio</span>
+                                </a>
+                                <a href="/download/${jobId}/tracklist" class="download-btn" download>
+                                    <span class="download-btn-icon">📋</span>
+                                    <span>Tracklist</span>
+                                </a>
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    ${tracks.tracks.length > 0 ? `
+                        <div style="margin-bottom: 1.5rem;">
+                            <h3 style="margin-bottom: 0.5rem;">Individual Tracks (${tracks.tracks.length})</h3>
+                            <div class="tracks-list" style="max-height: 200px; overflow-y: auto;">
+                                ${tracks.tracks.map(track => `
+                                    <div class="track-item">
+                                        <div class="track-info">
+                                            <div class="track-number">${track.track_number}</div>
+                                            <div class="track-details">
+                                                <div class="track-title">${escapeHtml(track.title)}</div>
+                                                <div class="track-duration">${track.duration_formatted} | ${track.size_mb} MB</div>
+                                            </div>
+                                        </div>
+                                        <a href="${track.download_url}" class="btn btn-secondary btn-sm" download>Download</a>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <div>
+                        <h3 style="margin-bottom: 0.5rem;">Logs</h3>
+                        <div class="logs-container">
+                            ${formatLogs(logs)}
+                        </div>
+                    </div>
+                `;
+
+            } catch (error) {
+                modalBody.innerHTML = `<p style="color: var(--error);">Failed to load job details</p>`;
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('job-modal').classList.remove('active');
+        }
+
+        async function deleteJob(jobId) {
+            if (!confirm('Are you sure you want to delete this job? This action cannot be undone.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/jobs/${jobId}`, { method: 'DELETE' });
+                if (response.ok) {
+                    loadHistory();
+                } else {
+                    alert('Failed to delete job');
+                }
+            } catch (error) {
+                alert('Error deleting job');
+            }
+        }
+
+        // Utility functions
         function formatFileSize(bytes) {
             if (bytes === 0) return '0 Bytes';
             const k = 1024;
             const sizes = ['Bytes', 'KB', 'MB', 'GB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return 'N/A';
+            const date = new Date(dateStr);
+            return date.toLocaleString();
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
         }
 
         // Save API key to localStorage
@@ -836,6 +1342,16 @@
         apiKeyInput.addEventListener('change', (e) => {
             localStorage.setItem('kie_api_key', e.target.value);
         });
+
+        // Close modal on outside click
+        document.getElementById('job-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'job-modal') {
+                closeModal();
+            }
+        });
+
+        // Initial history load
+        // loadHistory();
     </script>
 </body>
 </html>
