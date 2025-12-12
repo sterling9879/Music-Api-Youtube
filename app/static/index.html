@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Music Video Generator</title>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --secondary: #10b981;
+            --background: #0f172a;
+            --surface: #1e293b;
+            --surface-light: #334155;
+            --text: #f1f5f9;
+            --text-muted: #94a3b8;
+            --error: #ef4444;
+            --warning: #f59e0b;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--background);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+        }
+
+        .card {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: var(--text);
+        }
+
+        .label-hint {
+            font-weight: normal;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 0.875rem 1rem;
+            background: var(--surface-light);
+            border: 2px solid transparent;
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        input:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .file-upload {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem;
+            background: var(--surface-light);
+            border: 2px dashed var(--text-muted);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .file-upload:hover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .file-upload.dragover {
+            border-color: var(--secondary);
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .file-upload input {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .file-upload-icon {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .file-upload-text {
+            color: var(--text-muted);
+        }
+
+        .file-name {
+            margin-top: 0.5rem;
+            color: var(--secondary);
+            font-weight: 500;
+        }
+
+        .checkbox-group {
+            display: flex;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            width: 1.25rem;
+            height: 1.25rem;
+            accent-color: var(--primary);
+        }
+
+        .row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        @media (max-width: 600px) {
+            .row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 1rem 2rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            width: 100%;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--surface-light);
+            color: var(--text);
+        }
+
+        .btn-secondary:hover {
+            background: var(--text-muted);
+        }
+
+        .progress-section {
+            display: none;
+        }
+
+        .progress-section.active {
+            display: block;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        .progress-bar-container {
+            height: 8px;
+            background: var(--surface-light);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .progress-info {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            text-align: center;
+        }
+
+        .progress-stat {
+            padding: 1rem;
+            background: var(--surface-light);
+            border-radius: 8px;
+        }
+
+        .progress-stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .progress-stat-label {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        .status-message {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+        }
+
+        .status-message.info {
+            background: rgba(99, 102, 241, 0.2);
+            border-left: 4px solid var(--primary);
+        }
+
+        .status-message.success {
+            background: rgba(16, 185, 129, 0.2);
+            border-left: 4px solid var(--secondary);
+        }
+
+        .status-message.error {
+            background: rgba(239, 68, 68, 0.2);
+            border-left: 4px solid var(--error);
+        }
+
+        .download-section {
+            display: none;
+        }
+
+        .download-section.active {
+            display: block;
+        }
+
+        .download-buttons {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .download-btn {
+            flex: 1;
+            min-width: 150px;
+            padding: 1rem;
+            background: var(--surface-light);
+            border: 2px solid var(--primary);
+            border-radius: 8px;
+            color: var(--text);
+            text-decoration: none;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .download-btn:hover {
+            background: var(--primary);
+        }
+
+        .download-btn-icon {
+            font-size: 1.5rem;
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+
+        .tracklist {
+            margin-top: 1.5rem;
+        }
+
+        .tracklist h3 {
+            margin-bottom: 1rem;
+        }
+
+        .tracklist-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .tracklist-table th,
+        .tracklist-table td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--surface-light);
+        }
+
+        .tracklist-table th {
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+
+        .alert-warning {
+            background: rgba(245, 158, 11, 0.2);
+            border-left: 4px solid var(--warning);
+        }
+
+        .api-key-section {
+            background: rgba(99, 102, 241, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .api-key-section a {
+            color: var(--primary);
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+        }
+
+        footer a {
+            color: var(--primary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>AI Music Video Generator</h1>
+            <p class="subtitle">Create 2-hour music videos with AI-generated music</p>
+        </header>
+
+        <!-- Generation Form -->
+        <div id="form-section" class="card">
+            <form id="generate-form">
+                <!-- API Key -->
+                <div class="api-key-section">
+                    <label for="api-key">Kie AI API Key <span class="label-hint">(Required)</span></label>
+                    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 0.5rem;">
+                        Get your API key at <a href="https://kie.ai/api-key" target="_blank">kie.ai/api-key</a>
+                    </p>
+                    <input type="password" id="api-key" name="api_key" placeholder="Enter your Kie AI API key" required>
+                </div>
+
+                <!-- Music Prompt -->
+                <div class="form-group">
+                    <label for="prompt">Music Prompt <span class="label-hint">(Describe the music you want)</span></label>
+                    <textarea id="prompt" name="prompt" placeholder="Example: A calm and relaxing piano track with soft melodies, perfect for meditation and studying. Ambient atmosphere with gentle strings in the background." required maxlength="500"></textarea>
+                    <small style="color: var(--text-muted);">Max 500 characters</small>
+                </div>
+
+                <!-- Video Upload -->
+                <div class="form-group">
+                    <label>Video File <span class="label-hint">(Will be looped to match audio duration)</span></label>
+                    <div class="file-upload" id="file-drop-zone">
+                        <input type="file" id="video-file" name="video" accept=".mp4,.mov,.avi,.mkv,.webm" required>
+                        <div class="file-upload-icon">📁</div>
+                        <div class="file-upload-text">Drop video here or click to browse</div>
+                        <div class="file-name" id="file-name"></div>
+                    </div>
+                    <small style="color: var(--text-muted);">Supported: MP4, MOV, AVI, MKV, WebM (Max 500MB)</small>
+                </div>
+
+                <!-- Options -->
+                <div class="form-group">
+                    <label>Generation Options</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-item">
+                            <input type="checkbox" id="instrumental" name="instrumental" checked>
+                            <span>Instrumental (no vocals)</span>
+                        </label>
+                        <label class="checkbox-item">
+                            <input type="checkbox" id="custom-mode" name="custom_mode">
+                            <span>Custom Mode (advanced)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Advanced Options (shown when custom mode is enabled) -->
+                <div id="advanced-options" style="display: none;">
+                    <div class="row">
+                        <div class="form-group">
+                            <label for="model">AI Model</label>
+                            <select id="model" name="model">
+                                <option value="V4">V4 (Standard)</option>
+                                <option value="V4_5">V4.5 (Enhanced)</option>
+                                <option value="V4_5PLUS">V4.5 Plus (8 min songs)</option>
+                                <option value="V5">V5 (Latest)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="style">Music Style</label>
+                            <input type="text" id="style" name="style" placeholder="e.g., Classical, Jazz, Electronic">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="title">Track Title Prefix</label>
+                        <input type="text" id="title" name="title" placeholder="e.g., Relaxing Piano" maxlength="80">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary" id="submit-btn">
+                    <span id="submit-text">Generate Music Video</span>
+                </button>
+            </form>
+        </div>
+
+        <!-- Progress Section -->
+        <div id="progress-section" class="card progress-section">
+            <div class="progress-header">
+                <h2>Generation Progress</h2>
+                <span id="job-id" style="color: var(--text-muted); font-size: 0.85rem;"></span>
+            </div>
+
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+
+            <div class="progress-info">
+                <div class="progress-stat">
+                    <div class="progress-stat-value" id="track-count">0</div>
+                    <div class="progress-stat-label">Tracks Generated</div>
+                </div>
+                <div class="progress-stat">
+                    <div class="progress-stat-value" id="duration">00:00:00</div>
+                    <div class="progress-stat-label">Total Duration</div>
+                </div>
+                <div class="progress-stat">
+                    <div class="progress-stat-value" id="stage">Starting</div>
+                    <div class="progress-stat-label">Current Stage</div>
+                </div>
+            </div>
+
+            <div class="status-message info" id="status-message">
+                Initializing generation...
+            </div>
+        </div>
+
+        <!-- Download Section -->
+        <div id="download-section" class="card download-section">
+            <h2>Your Video is Ready!</h2>
+            <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Download your generated music video and related files below.</p>
+
+            <div class="download-buttons">
+                <a href="#" class="download-btn" id="download-video">
+                    <span class="download-btn-icon">🎬</span>
+                    <span>Download Video</span>
+                </a>
+                <a href="#" class="download-btn" id="download-audio">
+                    <span class="download-btn-icon">🎵</span>
+                    <span>Download Audio</span>
+                </a>
+                <a href="#" class="download-btn" id="download-tracklist">
+                    <span class="download-btn-icon">📋</span>
+                    <span>Download Tracklist</span>
+                </a>
+            </div>
+
+            <div class="tracklist" id="tracklist-section">
+                <h3>Tracklist</h3>
+                <table class="tracklist-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Start</th>
+                            <th>End</th>
+                            <th>Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tracklist-body">
+                    </tbody>
+                </table>
+            </div>
+
+            <button class="btn btn-secondary" onclick="resetForm()" style="margin-top: 1.5rem;">
+                Generate Another Video
+            </button>
+        </div>
+
+        <!-- Error Section -->
+        <div id="error-section" class="card" style="display: none;">
+            <h2 style="color: var(--error);">Generation Failed</h2>
+            <p id="error-message" style="color: var(--text-muted); margin: 1rem 0;"></p>
+            <button class="btn btn-secondary" onclick="resetForm()">
+                Try Again
+            </button>
+        </div>
+
+        <footer>
+            <p>Powered by <a href="https://kie.ai" target="_blank">Kie AI</a> | Max video duration: 2 hours</p>
+        </footer>
+    </div>
+
+    <script>
+        // State
+        let currentJobId = null;
+        let statusInterval = null;
+
+        // DOM elements
+        const form = document.getElementById('generate-form');
+        const formSection = document.getElementById('form-section');
+        const progressSection = document.getElementById('progress-section');
+        const downloadSection = document.getElementById('download-section');
+        const errorSection = document.getElementById('error-section');
+        const submitBtn = document.getElementById('submit-btn');
+        const submitText = document.getElementById('submit-text');
+        const fileInput = document.getElementById('video-file');
+        const fileName = document.getElementById('file-name');
+        const customModeCheckbox = document.getElementById('custom-mode');
+        const advancedOptions = document.getElementById('advanced-options');
+        const dropZone = document.getElementById('file-drop-zone');
+
+        // Toggle advanced options
+        customModeCheckbox.addEventListener('change', (e) => {
+            advancedOptions.style.display = e.target.checked ? 'block' : 'none';
+        });
+
+        // File input handling
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                const file = e.target.files[0];
+                fileName.textContent = `Selected: ${file.name} (${formatFileSize(file.size)})`;
+            }
+        });
+
+        // Drag and drop
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                fileInput.files = e.dataTransfer.files;
+                const file = e.dataTransfer.files[0];
+                fileName.textContent = `Selected: ${file.name} (${formatFileSize(file.size)})`;
+            }
+        });
+
+        // Form submission
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = new FormData(form);
+
+            // Validate
+            if (!formData.get('api_key')) {
+                alert('Please enter your Kie AI API key');
+                return;
+            }
+
+            if (!formData.get('prompt')) {
+                alert('Please enter a music prompt');
+                return;
+            }
+
+            if (!formData.get('video') || formData.get('video').size === 0) {
+                alert('Please select a video file');
+                return;
+            }
+
+            // Check file size (500MB limit)
+            const videoFile = formData.get('video');
+            if (videoFile.size > 500 * 1024 * 1024) {
+                alert('Video file is too large. Maximum size is 500MB.');
+                return;
+            }
+
+            // Show loading state
+            submitBtn.disabled = true;
+            submitText.innerHTML = '<span class="spinner"></span> Uploading...';
+
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to start generation');
+                }
+
+                currentJobId = data.job_id;
+                showProgressSection();
+                document.getElementById('job-id').textContent = `Job ID: ${currentJobId}`;
+                startStatusPolling();
+
+            } catch (error) {
+                alert('Error: ' + error.message);
+                submitBtn.disabled = false;
+                submitText.textContent = 'Generate Music Video';
+            }
+        });
+
+        // Status polling
+        function startStatusPolling() {
+            statusInterval = setInterval(checkStatus, 5000);
+            checkStatus(); // Initial check
+        }
+
+        async function checkStatus() {
+            if (!currentJobId) return;
+
+            try {
+                const response = await fetch(`/status/${currentJobId}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        // Job not found yet, might still be initializing
+                        return;
+                    }
+                    throw new Error(data.detail || 'Failed to get status');
+                }
+
+                updateProgress(data);
+
+                if (data.status === 'completed') {
+                    clearInterval(statusInterval);
+                    showDownloadSection(data);
+                } else if (data.status === 'failed') {
+                    clearInterval(statusInterval);
+                    showError(data.error || 'Generation failed');
+                }
+
+            } catch (error) {
+                console.error('Status check error:', error);
+            }
+        }
+
+        function updateProgress(data) {
+            const progress = data.progress || {};
+
+            // Update track count
+            document.getElementById('track-count').textContent = progress.current_track || 0;
+
+            // Update duration
+            document.getElementById('duration').textContent = progress.total_duration_formatted || '00:00:00';
+
+            // Update stage
+            const stageMap = {
+                'initializing': 'Starting',
+                'generating_audio': 'Generating',
+                'concatenating_audio': 'Combining',
+                'processing_video': 'Processing',
+                'combining': 'Finalizing',
+                'completed': 'Done!'
+            };
+            document.getElementById('stage').textContent = stageMap[progress.stage] || progress.stage;
+
+            // Update message
+            document.getElementById('status-message').textContent = progress.message || 'Processing...';
+
+            // Update progress bar (estimate based on duration)
+            const targetSeconds = 110 * 60; // 110 minutes target
+            const currentSeconds = progress.total_duration_seconds || 0;
+            let progressPercent = Math.min((currentSeconds / targetSeconds) * 100, 100);
+
+            // Add some progress for video processing stages
+            if (progress.stage === 'concatenating_audio') progressPercent = Math.max(progressPercent, 80);
+            if (progress.stage === 'processing_video') progressPercent = Math.max(progressPercent, 90);
+            if (progress.stage === 'combining') progressPercent = Math.max(progressPercent, 95);
+            if (progress.stage === 'completed') progressPercent = 100;
+
+            document.getElementById('progress-bar').style.width = `${progressPercent}%`;
+        }
+
+        function showProgressSection() {
+            formSection.style.display = 'none';
+            progressSection.classList.add('active');
+            downloadSection.classList.remove('active');
+            errorSection.style.display = 'none';
+        }
+
+        function showDownloadSection(data) {
+            progressSection.classList.remove('active');
+            downloadSection.classList.add('active');
+
+            // Set download links
+            document.getElementById('download-video').href = `/download/${currentJobId}/video`;
+            document.getElementById('download-audio').href = `/download/${currentJobId}/audio`;
+            document.getElementById('download-tracklist').href = `/download/${currentJobId}/tracklist`;
+
+            // Populate tracklist
+            if (data.tracklist && data.tracklist.tracks) {
+                const tbody = document.getElementById('tracklist-body');
+                tbody.innerHTML = '';
+
+                data.tracklist.tracks.forEach(track => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${track.id}</td>
+                        <td>${track.start}</td>
+                        <td>${track.end}</td>
+                        <td>${track.duration}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            }
+        }
+
+        function showError(message) {
+            progressSection.classList.remove('active');
+            errorSection.style.display = 'block';
+            document.getElementById('error-message').textContent = message;
+        }
+
+        function resetForm() {
+            currentJobId = null;
+            if (statusInterval) {
+                clearInterval(statusInterval);
+                statusInterval = null;
+            }
+
+            formSection.style.display = 'block';
+            progressSection.classList.remove('active');
+            downloadSection.classList.remove('active');
+            errorSection.style.display = 'none';
+
+            form.reset();
+            fileName.textContent = '';
+            submitBtn.disabled = false;
+            submitText.textContent = 'Generate Music Video';
+
+            // Reset progress display
+            document.getElementById('progress-bar').style.width = '0%';
+            document.getElementById('track-count').textContent = '0';
+            document.getElementById('duration').textContent = '00:00:00';
+            document.getElementById('stage').textContent = 'Starting';
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Save API key to localStorage
+        const apiKeyInput = document.getElementById('api-key');
+        apiKeyInput.value = localStorage.getItem('kie_api_key') || '';
+
+        apiKeyInput.addEventListener('change', (e) => {
+            localStorage.setItem('kie_api_key', e.target.value);
+        });
+    </script>
+</body>
+</html>
