@@ -457,6 +457,320 @@ def cleanup_old_files():
                         logger.error(f"Failed to delete {job_dir}: {e}")
 
 
+@celery_app.task(bind=True, max_retries=3)
+def create_mix_video(
+    self,
+    job_id: str,
+    source_job_ids: list,
+    video_filename: str,
+    target_duration_minutes: int = 120
+):
+    """
+    Create a mix video from existing tracks.
+
+    This task:
+    1. Collects all tracks from the specified source jobs
+    2. Randomly selects tracks until target duration is reached
+    3. Concatenates audio
+    4. Loops video to match audio
+    5. Creates final mixed video
+    """
+    import random
+
+    job_dir = OUTPUT_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    tracks_dir = job_dir / "tracks"
+    tracks_dir.mkdir(exist_ok=True)
+
+    video_path = UPLOAD_DIR / video_filename
+    final_video_path = job_dir / "final_video.mp4"
+    final_audio_path = job_dir / "final_audio.mp3"
+    tracklist_path = job_dir / "tracklist.json"
+
+    # Initialize job logger
+    job_logger = JobLogger(job_dir, job_id)
+    job_logger.info(f"Starting mix job from {len(source_job_ids)} source jobs")
+    job_logger.info(f"Target duration: {target_duration_minutes} minutes")
+
+    # Initialize progress
+    progress = {
+        "current_track": 0,
+        "total_duration_seconds": 0.0,
+        "total_duration_formatted": "00:00:00",
+        "stage": "initializing",
+        "message": "Starting mix creation...",
+        "tracks": []
+    }
+
+    # Save initial metadata
+    metadata = {
+        "job_id": job_id,
+        "job_type": "mix",
+        "source_jobs": source_job_ids,
+        "target_duration_minutes": target_duration_minutes,
+        "status": "processing",
+        "created_at": datetime.utcnow().isoformat(),
+        "completed_at": None,
+        "total_tracks": 0,
+        "total_duration": "00:00:00",
+        "total_duration_seconds": 0,
+        "video_file": None,
+        "audio_file": None,
+        "tracklist_file": None,
+        "tracks_info": []
+    }
+
+    with open(job_dir / "metadata.json", "w") as f:
+        json.dump(metadata, f, indent=2)
+
+    def update_progress(stage: str, message: str, **kwargs):
+        """Update task progress."""
+        progress["stage"] = stage
+        progress["message"] = message
+        progress.update(kwargs)
+        self.update_state(state="PROGRESS", meta=progress)
+        job_logger.info(f"[{stage}] {message}")
+
+    def save_metadata():
+        """Save current metadata to file."""
+        with open(job_dir / "metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
+
+    try:
+        # Validate video exists
+        if not video_path.exists():
+            raise VideoProcessingError(f"Video file not found: {video_path}")
+
+        job_logger.info(f"Video file validated: {video_filename}")
+
+        # Collect all available tracks from source jobs
+        update_progress("collecting", "Collecting tracks from source jobs...")
+
+        available_tracks = []
+        for source_job_id in source_job_ids:
+            source_job_dir = OUTPUT_DIR / source_job_id
+            source_tracks_dir = source_job_dir / "tracks"
+            source_metadata_path = source_job_dir / "metadata.json"
+
+            if not source_tracks_dir.exists():
+                job_logger.warning(f"Source job {source_job_id} has no tracks directory")
+                continue
+
+            # Load track info from metadata if available
+            tracks_info_map = {}
+            if source_metadata_path.exists():
+                try:
+                    with open(source_metadata_path) as f:
+                        source_metadata = json.load(f)
+                        for track in source_metadata.get("tracks_info", []):
+                            tracks_info_map[track.get("filename")] = track
+                except Exception as e:
+                    job_logger.warning(f"Could not read metadata for {source_job_id}: {e}")
+
+            # Collect track files
+            for track_file in source_tracks_dir.glob("*.mp3"):
+                track_info = tracks_info_map.get(track_file.name, {})
+                available_tracks.append({
+                    "source_job": source_job_id,
+                    "file_path": track_file,
+                    "filename": track_file.name,
+                    "title": track_info.get("title", track_file.stem),
+                    "duration_seconds": track_info.get("duration_seconds", 180),  # Default 3 min
+                    "duration_formatted": track_info.get("duration_formatted", "00:03:00"),
+                    "kie_track_id": track_info.get("kie_track_id", "")
+                })
+
+        if not available_tracks:
+            raise AudioProcessingError("No tracks found in source jobs")
+
+        job_logger.info(f"Found {len(available_tracks)} tracks from source jobs")
+
+        # Shuffle tracks for randomization
+        random.shuffle(available_tracks)
+
+        # Select tracks until we reach target duration
+        update_progress("selecting", "Selecting tracks for mix...")
+
+        target_duration_seconds = target_duration_minutes * 60
+        max_duration_seconds = (target_duration_minutes + 10) * 60  # Allow 10 min overflow
+
+        selected_tracks = []
+        total_duration = 0.0
+        track_number = 0
+
+        # Keep selecting tracks until we reach target
+        track_index = 0
+        while total_duration < target_duration_seconds:
+            if track_index >= len(available_tracks):
+                # If we've gone through all tracks, reshuffle and start over
+                if total_duration >= target_duration_seconds * 0.9:  # 90% is enough
+                    break
+                random.shuffle(available_tracks)
+                track_index = 0
+                job_logger.info("Reshuffling tracks for more content...")
+
+            track = available_tracks[track_index]
+            track_duration = track["duration_seconds"]
+
+            # Check if adding this track exceeds max
+            if total_duration + track_duration > max_duration_seconds:
+                track_index += 1
+                continue
+
+            track_number += 1
+
+            # Copy track to mix job's tracks folder
+            dest_track_file = tracks_dir / f"track_{track_number:03d}.mp3"
+            shutil.copy2(track["file_path"], dest_track_file)
+
+            selected_tracks.append((dest_track_file, track["title"], track["kie_track_id"]))
+
+            # Store track info
+            track_info_item = {
+                "track_number": track_number,
+                "filename": f"track_{track_number:03d}.mp3",
+                "title": track["title"],
+                "original_source": track["source_job"],
+                "original_filename": track["filename"],
+                "kie_track_id": track["kie_track_id"],
+                "duration_seconds": track_duration,
+                "duration_formatted": track["duration_formatted"]
+            }
+            metadata["tracks_info"].append(track_info_item)
+            save_metadata()
+
+            total_duration += track_duration
+            job_logger.info(
+                f"Track {track_number}: {track['title']} "
+                f"(duration: {track['duration_formatted']}, "
+                f"total: {format_duration(total_duration)})"
+            )
+
+            track_index += 1
+
+            update_progress(
+                "selecting",
+                f"Selected {track_number} tracks. Total: {format_duration(total_duration)}",
+                current_track=track_number,
+                total_duration_seconds=total_duration,
+                total_duration_formatted=format_duration(total_duration)
+            )
+
+        if not selected_tracks:
+            raise AudioProcessingError("No tracks could be selected for mix")
+
+        job_logger.info(f"Selection complete: {len(selected_tracks)} tracks, {format_duration(total_duration)}")
+
+        # Initialize processors
+        audio_processor = AudioProcessor(job_dir / "audio_work")
+        video_processor = VideoProcessor(job_dir / "video_work")
+
+        # Concatenate audio
+        update_progress(
+            "concatenating_audio",
+            f"Concatenating {len(selected_tracks)} tracks...",
+            current_track=len(selected_tracks),
+            total_duration_seconds=total_duration,
+            total_duration_formatted=format_duration(total_duration)
+        )
+
+        job_logger.info("Starting audio concatenation...")
+        audio_result = audio_processor.concatenate_audio_files(
+            selected_tracks,
+            final_audio_path
+        )
+        job_logger.info(f"Audio concatenated: {audio_result.total_duration_formatted}")
+
+        # Generate tracklist
+        audio_processor.generate_tracklist_json(audio_result, tracklist_path)
+        job_logger.info("Tracklist generated")
+
+        # Process video
+        update_progress(
+            "processing_video",
+            "Looping video to match audio duration...",
+            current_track=len(selected_tracks),
+            total_duration_seconds=audio_result.total_duration_seconds,
+            total_duration_formatted=audio_result.total_duration_formatted
+        )
+
+        job_logger.info(f"Starting video processing (target: {audio_result.total_duration_formatted})...")
+        video_processor.process_video_with_audio(
+            video_path,
+            final_audio_path,
+            audio_result.total_duration_seconds,
+            final_video_path
+        )
+        job_logger.info("Video processing complete")
+
+        # Update final metadata
+        metadata.update({
+            "status": "completed",
+            "completed_at": datetime.utcnow().isoformat(),
+            "total_tracks": len(selected_tracks),
+            "total_duration": audio_result.total_duration_formatted,
+            "total_duration_seconds": audio_result.total_duration_seconds,
+            "video_file": "final_video.mp4",
+            "audio_file": "final_audio.mp3",
+            "tracklist_file": "tracklist.json"
+        })
+        save_metadata()
+
+        # Cleanup work directories
+        shutil.rmtree(job_dir / "audio_work", ignore_errors=True)
+        shutil.rmtree(job_dir / "video_work", ignore_errors=True)
+
+        job_logger.info("=" * 50)
+        job_logger.info("MIX JOB COMPLETED SUCCESSFULLY")
+        job_logger.info(f"Total tracks: {len(selected_tracks)}")
+        job_logger.info(f"Total duration: {audio_result.total_duration_formatted}")
+        job_logger.info(f"Output: {final_video_path}")
+        job_logger.info("=" * 50)
+
+        # Final progress
+        final_progress = {
+            "current_track": len(selected_tracks),
+            "total_duration_seconds": audio_result.total_duration_seconds,
+            "total_duration_formatted": audio_result.total_duration_formatted,
+            "stage": "completed",
+            "message": "Mix video completed!",
+            "video_file": "final_video.mp4",
+            "audio_file": "final_audio.mp3",
+            "tracklist_file": "tracklist.json"
+        }
+
+        return final_progress
+
+    except SoftTimeLimitExceeded:
+        job_logger.error("Task exceeded time limit")
+        metadata["status"] = "failed"
+        metadata["error"] = "Task exceeded time limit"
+        save_metadata()
+        update_progress("failed", "Task exceeded time limit")
+        raise
+
+    except (AudioProcessingError, VideoProcessingError) as e:
+        job_logger.error(f"Task failed: {e}")
+        metadata["status"] = "failed"
+        metadata["error"] = str(e)
+        save_metadata()
+        progress["stage"] = "failed"
+        progress["message"] = str(e)
+        self.update_state(state=states.FAILURE, meta=progress)
+        raise
+
+    except Exception as e:
+        job_logger.error(f"Unexpected error: {str(e)}")
+        metadata["status"] = "failed"
+        metadata["error"] = f"Unexpected error: {str(e)}"
+        save_metadata()
+        progress["stage"] = "failed"
+        progress["message"] = f"Unexpected error: {str(e)}"
+        self.update_state(state=states.FAILURE, meta=progress)
+        raise
+
+
 # Celery beat schedule for cleanup
 celery_app.conf.beat_schedule = {
     "cleanup-old-files": {

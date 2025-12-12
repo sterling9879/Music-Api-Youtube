@@ -23,7 +23,7 @@ from app.api.models import (
     TrackInfo,
     ErrorResponse,
 )
-from app.workers.tasks import generate_music_video
+from app.workers.tasks import generate_music_video, create_mix_video
 from app.workers.celery_app import celery_app
 from app.config import (
     UPLOAD_DIR,
@@ -278,6 +278,164 @@ async def download_track(job_id: str, filename: str):
         media_type="audio/mpeg",
         filename=filename
     )
+
+
+@app.get("/jobs-with-tracks")
+async def list_jobs_with_tracks():
+    """
+    List all jobs that have tracks available for mixing.
+    """
+    jobs = []
+
+    if not OUTPUT_DIR.exists():
+        return {"jobs": []}
+
+    # Get all job directories
+    job_dirs = sorted(
+        [d for d in OUTPUT_DIR.iterdir() if d.is_dir()],
+        key=lambda x: x.stat().st_mtime,
+        reverse=True
+    )
+
+    for job_dir in job_dirs:
+        tracks_dir = job_dir / "tracks"
+        if not tracks_dir.exists():
+            continue
+
+        track_files = list(tracks_dir.glob("*.mp3"))
+        if not track_files:
+            continue
+
+        metadata_path = job_dir / "metadata.json"
+        job_info = {
+            "job_id": job_dir.name,
+            "tracks_count": len(track_files),
+            "prompt": "",
+            "created_at": None,
+            "total_duration": "00:00:00"
+        }
+
+        if metadata_path.exists():
+            try:
+                with open(metadata_path) as f:
+                    metadata = json.load(f)
+                    job_info["prompt"] = metadata.get("prompt", "")[:100]
+                    job_info["created_at"] = metadata.get("created_at")
+                    job_info["total_duration"] = metadata.get("total_duration", "00:00:00")
+                    job_info["job_type"] = metadata.get("job_type", "generate")
+            except Exception:
+                pass
+
+        jobs.append(job_info)
+
+    return {"jobs": jobs}
+
+
+@app.post("/mix")
+async def create_mix(
+    video: UploadFile = File(...),
+    job_ids: str = Form(...),  # Comma-separated job IDs
+    target_duration: int = Form(120),  # Target duration in minutes
+):
+    """
+    Create a mix video from tracks of selected jobs.
+
+    - Upload a video file
+    - Provide comma-separated job IDs to source tracks from
+    - Optionally specify target duration in minutes (default: 120)
+    """
+    # Parse job IDs
+    source_job_ids = [jid.strip() for jid in job_ids.split(",") if jid.strip()]
+
+    if not source_job_ids:
+        raise HTTPException(status_code=400, detail="No job IDs provided")
+
+    # Validate at least one job has tracks
+    valid_jobs = []
+    total_available_tracks = 0
+    for job_id in source_job_ids:
+        tracks_dir = OUTPUT_DIR / job_id / "tracks"
+        if tracks_dir.exists():
+            track_count = len(list(tracks_dir.glob("*.mp3")))
+            if track_count > 0:
+                valid_jobs.append(job_id)
+                total_available_tracks += track_count
+
+    if not valid_jobs:
+        raise HTTPException(
+            status_code=400,
+            detail="None of the selected jobs have tracks available"
+        )
+
+    # Validate video file
+    if not video.filename:
+        raise HTTPException(status_code=400, detail="No video file provided")
+
+    file_ext = Path(video.filename).suffix.lower()
+    if file_ext not in ALLOWED_VIDEO_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid video format. Allowed: {', '.join(ALLOWED_VIDEO_EXTENSIONS)}"
+        )
+
+    # Validate target duration
+    target_duration = max(5, min(180, target_duration))  # 5 min to 3 hours
+
+    # Generate job ID
+    job_id = str(uuid.uuid4())
+
+    # Save uploaded video
+    video_filename = f"{job_id}{file_ext}"
+    video_path = UPLOAD_DIR / video_filename
+
+    try:
+        content = await video.read()
+        if len(content) > MAX_UPLOAD_SIZE_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Video file too large. Maximum size: {MAX_UPLOAD_SIZE_BYTES // (1024*1024)}MB"
+            )
+
+        video_path.write_bytes(content)
+        logger.info(f"Saved video for mix to {video_path}")
+
+        # Validate video file
+        try:
+            validate_video_format(video_path)
+        except VideoProcessingError as e:
+            video_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail=str(e))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        video_path.unlink(missing_ok=True)
+        logger.error(f"Failed to save video: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save video file")
+
+    # Start Celery task
+    try:
+        task = create_mix_video.delay(
+            job_id=job_id,
+            source_job_ids=valid_jobs,
+            video_filename=video_filename,
+            target_duration_minutes=target_duration
+        )
+
+        logger.info(f"Started mix job {job_id} from {len(valid_jobs)} sources with task {task.id}")
+
+        return {
+            "job_id": job_id,
+            "message": f"Mix creation started from {len(valid_jobs)} jobs ({total_available_tracks} tracks available). Use /status/{job_id} to check progress.",
+            "status": "pending",
+            "source_jobs": valid_jobs,
+            "target_duration_minutes": target_duration
+        }
+
+    except Exception as e:
+        video_path.unlink(missing_ok=True)
+        logger.error(f"Failed to start mix task: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start mix task")
 
 
 @app.post("/generate", response_model=GenerateResponse)

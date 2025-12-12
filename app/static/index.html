@@ -621,6 +621,93 @@
         .hidden {
             display: none !important;
         }
+
+        /* Jobs Selection List for Mix */
+        .jobs-selection-list {
+            max-height: 300px;
+            overflow-y: auto;
+            background: var(--surface-light);
+            border-radius: 8px;
+            padding: 0.5rem;
+        }
+
+        .job-select-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem 1rem;
+            background: var(--surface);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .job-select-item:hover {
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .job-select-item.selected {
+            background: rgba(99, 102, 241, 0.2);
+            border: 2px solid var(--primary);
+        }
+
+        .job-select-item input[type="checkbox"] {
+            width: 1.25rem;
+            height: 1.25rem;
+            accent-color: var(--primary);
+            cursor: pointer;
+        }
+
+        .job-select-info {
+            flex: 1;
+        }
+
+        .job-select-prompt {
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 400px;
+        }
+
+        .job-select-meta {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .job-select-tracks {
+            background: var(--primary);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .select-all-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            margin-bottom: 0.5rem;
+            border-bottom: 1px solid var(--surface-light);
+        }
+
+        .select-all-row label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+        }
+
+        .total-tracks-info {
+            color: var(--secondary);
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -633,6 +720,7 @@
         <!-- Tabs -->
         <div class="tabs">
             <button class="tab-btn active" data-tab="generate">Generate</button>
+            <button class="tab-btn" data-tab="mix">Mix</button>
             <button class="tab-btn" data-tab="history">History</button>
         </div>
 
@@ -806,6 +894,145 @@
             </div>
         </div>
 
+        <!-- Mix Tab -->
+        <div id="mix-tab" class="tab-content">
+            <!-- Mix Form -->
+            <div id="mix-form-section" class="card">
+                <div class="card-header">
+                    <h2>Create Mix from Existing Tracks</h2>
+                    <button class="refresh-btn" onclick="loadJobsForMix()" title="Refresh">
+                        🔄
+                    </button>
+                </div>
+
+                <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
+                    Select previous generations to create a new video with randomly mixed tracks.
+                </p>
+
+                <form id="mix-form">
+                    <!-- Job Selection -->
+                    <div class="form-group">
+                        <label>Select Source Jobs <span class="label-hint">(Check the jobs to include tracks from)</span></label>
+                        <div id="mix-jobs-list" class="jobs-selection-list">
+                            <div class="empty-state" style="padding: 1rem;">
+                                <p>Loading available jobs...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Video Upload for Mix -->
+                    <div class="form-group">
+                        <label>Video File <span class="label-hint">(Will be looped to match mixed audio duration)</span></label>
+                        <div class="file-upload" id="mix-file-drop-zone">
+                            <input type="file" id="mix-video-file" name="video" accept=".mp4,.mov,.avi,.mkv,.webm" required>
+                            <div class="file-upload-icon">📁</div>
+                            <div class="file-upload-text">Drop video here or click to browse</div>
+                            <div class="file-name" id="mix-file-name"></div>
+                        </div>
+                        <small style="color: var(--text-muted);">Supported: MP4, MOV, AVI, MKV, WebM (Max 500MB)</small>
+                    </div>
+
+                    <!-- Target Duration -->
+                    <div class="form-group">
+                        <label for="mix-target-duration">Target Duration <span class="label-hint">(How long should the final video be)</span></label>
+                        <select id="mix-target-duration" name="target_duration">
+                            <option value="30">30 minutes</option>
+                            <option value="60">1 hour</option>
+                            <option value="90">1.5 hours</option>
+                            <option value="120" selected>2 hours</option>
+                            <option value="150">2.5 hours</option>
+                            <option value="180">3 hours</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-full" id="mix-submit-btn">
+                        <span id="mix-submit-text">Create Mix Video</span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Mix Progress Section -->
+            <div id="mix-progress-section" class="card hidden">
+                <div class="card-header">
+                    <h2>Mix Progress</h2>
+                    <span id="mix-job-id" style="color: var(--text-muted); font-size: 0.85rem;"></span>
+                </div>
+
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="mix-progress-bar"></div>
+                </div>
+
+                <div class="progress-info">
+                    <div class="progress-stat">
+                        <div class="progress-stat-value" id="mix-track-count">0</div>
+                        <div class="progress-stat-label">Tracks Selected</div>
+                    </div>
+                    <div class="progress-stat">
+                        <div class="progress-stat-value" id="mix-duration">00:00:00</div>
+                        <div class="progress-stat-label">Total Duration</div>
+                    </div>
+                    <div class="progress-stat">
+                        <div class="progress-stat-value" id="mix-stage">Starting</div>
+                        <div class="progress-stat-label">Current Stage</div>
+                    </div>
+                </div>
+
+                <div class="status-message info" id="mix-status-message">
+                    Initializing mix creation...
+                </div>
+
+                <!-- Logs during mix progress -->
+                <div style="margin-top: 1rem;">
+                    <button class="btn btn-secondary btn-sm" onclick="toggleMixLogs()">
+                        Show Logs
+                    </button>
+                    <div id="mix-progress-logs" class="logs-container hidden" style="margin-top: 1rem; max-height: 200px;">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mix Download Section -->
+            <div id="mix-download-section" class="card hidden">
+                <h2>Your Mix is Ready!</h2>
+                <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Download your mixed music video and related files below.</p>
+
+                <div class="download-buttons">
+                    <a href="#" class="download-btn" id="mix-download-video">
+                        <span class="download-btn-icon">🎬</span>
+                        <span>Download Video</span>
+                    </a>
+                    <a href="#" class="download-btn" id="mix-download-audio">
+                        <span class="download-btn-icon">🎵</span>
+                        <span>Download Audio</span>
+                    </a>
+                    <a href="#" class="download-btn" id="mix-download-tracklist">
+                        <span class="download-btn-icon">📋</span>
+                        <span>Download Tracklist</span>
+                    </a>
+                </div>
+
+                <!-- Individual Tracks from Mix -->
+                <div style="margin-top: 1.5rem;">
+                    <h3 style="margin-bottom: 1rem;">Mixed Tracks</h3>
+                    <div id="mix-tracks-list" class="tracks-list">
+                    </div>
+                </div>
+
+                <button class="btn btn-secondary" onclick="resetMixForm()" style="margin-top: 1.5rem;">
+                    Create Another Mix
+                </button>
+            </div>
+
+            <!-- Mix Error Section -->
+            <div id="mix-error-section" class="card hidden">
+                <h2 style="color: var(--error);">Mix Creation Failed</h2>
+                <p id="mix-error-message" style="color: var(--text-muted); margin: 1rem 0;"></p>
+                <button class="btn btn-secondary" onclick="resetMixForm()">
+                    Try Again
+                </button>
+            </div>
+        </div>
+
         <!-- History Tab -->
         <div id="history-tab" class="tab-content">
             <div class="card">
@@ -848,6 +1075,12 @@
         let statusInterval = null;
         let logsInterval = null;
 
+        // Mix State
+        let currentMixJobId = null;
+        let mixStatusInterval = null;
+        let mixLogsInterval = null;
+        let availableJobsForMix = [];
+
         // DOM elements
         const form = document.getElementById('generate-form');
         const formSection = document.getElementById('form-section');
@@ -872,6 +1105,8 @@
 
                 if (btn.dataset.tab === 'history') {
                     loadHistory();
+                } else if (btn.dataset.tab === 'mix') {
+                    loadJobsForMix();
                 }
             });
         });
@@ -1363,6 +1598,375 @@
 
         // Initial history load
         // loadHistory();
+
+        // ==================== MIX TAB FUNCTIONS ====================
+
+        // Mix DOM elements
+        const mixForm = document.getElementById('mix-form');
+        const mixFormSection = document.getElementById('mix-form-section');
+        const mixProgressSection = document.getElementById('mix-progress-section');
+        const mixDownloadSection = document.getElementById('mix-download-section');
+        const mixErrorSection = document.getElementById('mix-error-section');
+        const mixSubmitBtn = document.getElementById('mix-submit-btn');
+        const mixSubmitText = document.getElementById('mix-submit-text');
+        const mixFileInput = document.getElementById('mix-video-file');
+        const mixFileName = document.getElementById('mix-file-name');
+        const mixDropZone = document.getElementById('mix-file-drop-zone');
+
+        // Mix file input handling
+        mixFileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                const file = e.target.files[0];
+                mixFileName.textContent = `Selected: ${file.name} (${formatFileSize(file.size)})`;
+            }
+        });
+
+        // Mix drag and drop
+        mixDropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            mixDropZone.classList.add('dragover');
+        });
+
+        mixDropZone.addEventListener('dragleave', () => {
+            mixDropZone.classList.remove('dragover');
+        });
+
+        mixDropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            mixDropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                mixFileInput.files = e.dataTransfer.files;
+                const file = e.dataTransfer.files[0];
+                mixFileName.textContent = `Selected: ${file.name} (${formatFileSize(file.size)})`;
+            }
+        });
+
+        // Load jobs with tracks for mixing
+        async function loadJobsForMix() {
+            const container = document.getElementById('mix-jobs-list');
+            container.innerHTML = '<div class="empty-state" style="padding: 1rem;"><p>Loading available jobs...</p></div>';
+
+            try {
+                const response = await fetch('/jobs-with-tracks');
+                const data = await response.json();
+
+                availableJobsForMix = data.jobs;
+
+                if (data.jobs.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state" style="padding: 2rem;">
+                            <div class="empty-state-icon">📂</div>
+                            <p>No jobs with tracks available</p>
+                            <p style="font-size: 0.85rem; margin-top: 0.5rem;">Generate some music first to create mixes!</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                const totalTracks = data.jobs.reduce((sum, job) => sum + job.tracks_count, 0);
+
+                container.innerHTML = `
+                    <div class="select-all-row">
+                        <label>
+                            <input type="checkbox" id="select-all-jobs" onchange="toggleSelectAllJobs()">
+                            <span>Select All</span>
+                        </label>
+                        <span class="total-tracks-info" id="selected-tracks-info">0 tracks selected</span>
+                    </div>
+                    ${data.jobs.map(job => `
+                        <div class="job-select-item" onclick="toggleJobSelection('${job.job_id}')">
+                            <input type="checkbox" class="job-checkbox" value="${job.job_id}" onchange="updateSelectedTracksCount()">
+                            <div class="job-select-info">
+                                <div class="job-select-prompt">${escapeHtml(job.prompt || 'No prompt')} ${job.job_type === 'mix' ? '(Mix)' : ''}</div>
+                                <div class="job-select-meta">
+                                    <span>${formatDate(job.created_at)}</span>
+                                    <span>${job.total_duration}</span>
+                                </div>
+                            </div>
+                            <span class="job-select-tracks">${job.tracks_count} tracks</span>
+                        </div>
+                    `).join('')}
+                `;
+
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="empty-state" style="padding: 2rem;">
+                        <div class="empty-state-icon">❌</div>
+                        <p>Failed to load jobs</p>
+                    </div>
+                `;
+            }
+        }
+
+        function toggleJobSelection(jobId) {
+            const checkbox = document.querySelector(`.job-checkbox[value="${jobId}"]`);
+            if (checkbox) {
+                checkbox.checked = !checkbox.checked;
+                checkbox.closest('.job-select-item').classList.toggle('selected', checkbox.checked);
+                updateSelectedTracksCount();
+            }
+        }
+
+        function toggleSelectAllJobs() {
+            const selectAll = document.getElementById('select-all-jobs');
+            const checkboxes = document.querySelectorAll('.job-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = selectAll.checked;
+                cb.closest('.job-select-item').classList.toggle('selected', selectAll.checked);
+            });
+            updateSelectedTracksCount();
+        }
+
+        function updateSelectedTracksCount() {
+            const selectedJobIds = getSelectedJobIds();
+            let totalTracks = 0;
+            selectedJobIds.forEach(jobId => {
+                const job = availableJobsForMix.find(j => j.job_id === jobId);
+                if (job) totalTracks += job.tracks_count;
+            });
+            document.getElementById('selected-tracks-info').textContent = `${totalTracks} tracks selected`;
+        }
+
+        function getSelectedJobIds() {
+            const checkboxes = document.querySelectorAll('.job-checkbox:checked');
+            return Array.from(checkboxes).map(cb => cb.value);
+        }
+
+        // Mix form submission
+        mixForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const selectedJobIds = getSelectedJobIds();
+            if (selectedJobIds.length === 0) {
+                alert('Please select at least one job to mix tracks from');
+                return;
+            }
+
+            const videoFile = mixFileInput.files[0];
+            if (!videoFile) {
+                alert('Please select a video file');
+                return;
+            }
+
+            if (videoFile.size > 500 * 1024 * 1024) {
+                alert('Video file is too large. Maximum size is 500MB.');
+                return;
+            }
+
+            const targetDuration = document.getElementById('mix-target-duration').value;
+
+            // Show loading state
+            mixSubmitBtn.disabled = true;
+            mixSubmitText.innerHTML = '<span class="spinner"></span> Creating mix...';
+
+            const formData = new FormData();
+            formData.append('video', videoFile);
+            formData.append('job_ids', selectedJobIds.join(','));
+            formData.append('target_duration', targetDuration);
+
+            try {
+                const response = await fetch('/mix', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to start mix');
+                }
+
+                currentMixJobId = data.job_id;
+                showMixProgressSection();
+                document.getElementById('mix-job-id').textContent = `Job ID: ${currentMixJobId}`;
+                startMixStatusPolling();
+                startMixLogsPolling();
+
+            } catch (error) {
+                alert('Error: ' + error.message);
+                mixSubmitBtn.disabled = false;
+                mixSubmitText.textContent = 'Create Mix Video';
+            }
+        });
+
+        // Mix status polling
+        function startMixStatusPolling() {
+            mixStatusInterval = setInterval(checkMixStatus, 5000);
+            checkMixStatus();
+        }
+
+        function startMixLogsPolling() {
+            mixLogsInterval = setInterval(fetchMixLogs, 3000);
+        }
+
+        async function checkMixStatus() {
+            if (!currentMixJobId) return;
+
+            try {
+                const response = await fetch(`/status/${currentMixJobId}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    if (response.status === 404) return;
+                    throw new Error(data.detail || 'Failed to get status');
+                }
+
+                updateMixProgress(data);
+
+                if (data.status === 'completed') {
+                    clearInterval(mixStatusInterval);
+                    clearInterval(mixLogsInterval);
+                    await loadMixTracks();
+                    showMixDownloadSection(data);
+                } else if (data.status === 'failed') {
+                    clearInterval(mixStatusInterval);
+                    clearInterval(mixLogsInterval);
+                    showMixError(data.error || 'Mix creation failed');
+                }
+
+            } catch (error) {
+                console.error('Mix status check error:', error);
+            }
+        }
+
+        async function fetchMixLogs() {
+            if (!currentMixJobId) return;
+
+            try {
+                const response = await fetch(`/jobs/${currentMixJobId}/logs?tail=50`);
+                if (response.ok) {
+                    const logs = await response.text();
+                    const logsContainer = document.getElementById('mix-progress-logs');
+                    logsContainer.innerHTML = formatLogs(logs);
+                    logsContainer.scrollTop = logsContainer.scrollHeight;
+                }
+            } catch (error) {
+                console.error('Mix logs fetch error:', error);
+            }
+        }
+
+        function toggleMixLogs() {
+            const logsContainer = document.getElementById('mix-progress-logs');
+            logsContainer.classList.toggle('hidden');
+        }
+
+        function updateMixProgress(data) {
+            const progress = data.progress || {};
+
+            document.getElementById('mix-track-count').textContent = progress.current_track || 0;
+            document.getElementById('mix-duration').textContent = progress.total_duration_formatted || '00:00:00';
+
+            const stageMap = {
+                'initializing': 'Starting',
+                'collecting': 'Collecting',
+                'selecting': 'Selecting',
+                'concatenating_audio': 'Combining',
+                'processing_video': 'Processing',
+                'completed': 'Done!',
+                'failed': 'Failed'
+            };
+            document.getElementById('mix-stage').textContent = stageMap[progress.stage] || progress.stage;
+            document.getElementById('mix-status-message').textContent = progress.message || 'Processing...';
+
+            // Update progress bar
+            const targetDuration = parseInt(document.getElementById('mix-target-duration').value) * 60;
+            const currentSeconds = progress.total_duration_seconds || 0;
+            let progressPercent = Math.min((currentSeconds / targetDuration) * 100, 100);
+
+            if (progress.stage === 'concatenating_audio') progressPercent = Math.max(progressPercent, 80);
+            if (progress.stage === 'processing_video') progressPercent = Math.max(progressPercent, 90);
+            if (progress.stage === 'completed') progressPercent = 100;
+
+            document.getElementById('mix-progress-bar').style.width = `${progressPercent}%`;
+        }
+
+        async function loadMixTracks() {
+            if (!currentMixJobId) return;
+
+            try {
+                const response = await fetch(`/jobs/${currentMixJobId}/tracks`);
+                if (response.ok) {
+                    const data = await response.json();
+                    renderMixTracks(data.tracks);
+                }
+            } catch (error) {
+                console.error('Error loading mix tracks:', error);
+            }
+        }
+
+        function renderMixTracks(tracks) {
+            const container = document.getElementById('mix-tracks-list');
+            if (!tracks || tracks.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-muted);">No individual tracks available</p>';
+                return;
+            }
+
+            container.innerHTML = tracks.map(track => `
+                <div class="track-item">
+                    <div class="track-info">
+                        <div class="track-number">${track.track_number}</div>
+                        <div class="track-details">
+                            <div class="track-title">${escapeHtml(track.title)}</div>
+                            <div class="track-duration">${track.duration_formatted} | ${track.size_mb} MB</div>
+                        </div>
+                    </div>
+                    <a href="${track.download_url}" class="btn btn-secondary btn-sm" download>Download</a>
+                </div>
+            `).join('');
+        }
+
+        function showMixProgressSection() {
+            mixFormSection.classList.add('hidden');
+            mixProgressSection.classList.remove('hidden');
+            mixDownloadSection.classList.add('hidden');
+            mixErrorSection.classList.add('hidden');
+        }
+
+        function showMixDownloadSection(data) {
+            mixProgressSection.classList.add('hidden');
+            mixDownloadSection.classList.remove('hidden');
+
+            document.getElementById('mix-download-video').href = `/download/${currentMixJobId}/video`;
+            document.getElementById('mix-download-audio').href = `/download/${currentMixJobId}/audio`;
+            document.getElementById('mix-download-tracklist').href = `/download/${currentMixJobId}/tracklist`;
+        }
+
+        function showMixError(message) {
+            mixProgressSection.classList.add('hidden');
+            mixErrorSection.classList.remove('hidden');
+            document.getElementById('mix-error-message').textContent = message;
+        }
+
+        function resetMixForm() {
+            currentMixJobId = null;
+            if (mixStatusInterval) {
+                clearInterval(mixStatusInterval);
+                mixStatusInterval = null;
+            }
+            if (mixLogsInterval) {
+                clearInterval(mixLogsInterval);
+                mixLogsInterval = null;
+            }
+
+            mixFormSection.classList.remove('hidden');
+            mixProgressSection.classList.add('hidden');
+            mixDownloadSection.classList.add('hidden');
+            mixErrorSection.classList.add('hidden');
+
+            mixForm.reset();
+            mixFileName.textContent = '';
+            mixSubmitBtn.disabled = false;
+            mixSubmitText.textContent = 'Create Mix Video';
+
+            document.getElementById('mix-progress-bar').style.width = '0%';
+            document.getElementById('mix-track-count').textContent = '0';
+            document.getElementById('mix-duration').textContent = '00:00:00';
+            document.getElementById('mix-stage').textContent = 'Starting';
+            document.getElementById('mix-progress-logs').innerHTML = '';
+
+            // Reload jobs for mix
+            loadJobsForMix();
+        }
     </script>
 </body>
 </html>
