@@ -66,6 +66,9 @@ class KieAIService:
             "customMode": custom_mode,
             "instrumental": instrumental,
             "model": model,
+            # callBackUrl is required by Kie AI API, but we use polling instead
+            # Using a placeholder URL since we don't need actual callbacks
+            "callBackUrl": "https://localhost/callback"
         }
 
         if custom_mode and style:
