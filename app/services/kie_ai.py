@@ -193,7 +193,10 @@ class KieAIService:
 
             if status == "SUCCESS" and tracks:
                 return tracks
-            elif status in ("PENDING", "PROCESSING"):
+            elif status in ("PENDING", "PROCESSING", "TEXT_SUCCESS", "FIRST_SUCCESS"):
+                # TEXT_SUCCESS = lyrics generated, still processing audio
+                # FIRST_SUCCESS = first track ready, waiting for more
+                # Continue polling until SUCCESS (all tracks ready)
                 await asyncio.sleep(POLLING_INTERVAL)
             else:
                 raise KieAIError(f"Unexpected status: {status}")
