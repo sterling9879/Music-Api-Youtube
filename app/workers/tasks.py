@@ -81,7 +81,8 @@ def generate_music_video(
     instrumental: bool = True,
     model: str = "V4",
     style: Optional[str] = None,
-    title: Optional[str] = None
+    title: Optional[str] = None,
+    concurrent_tracks: int = 1
 ):
     """
     Main task for generating music video.
@@ -172,6 +173,7 @@ def generate_music_video(
 
         job_logger.info(f"Target duration: {TARGET_DURATION_MINUTES} minutes")
         job_logger.info(f"Max duration: {MAX_DURATION_MINUTES} minutes")
+        job_logger.info(f"Concurrent tracks per batch: {concurrent_tracks}")
 
         generated_tracks = []
         tracks_info = []
@@ -185,113 +187,128 @@ def generate_music_video(
             total_duration_seconds=0
         )
 
+        async def generate_single_track(kie_svc, track_num):
+            """Generate a single track asynchronously."""
+            try:
+                task_id = await kie_svc.generate_music(
+                    prompt=prompt,
+                    custom_mode=custom_mode,
+                    instrumental=instrumental,
+                    model=model,
+                    style=style,
+                    title=f"{title or 'Track'} {track_num}" if title else None
+                )
+                job_logger.info(f"Track {track_num} - Kie AI task ID: {task_id}")
+
+                tracks_data = await kie_svc.wait_for_completion(task_id)
+
+                if tracks_data:
+                    return {"track_num": track_num, "data": tracks_data[0], "success": True}
+                return {"track_num": track_num, "success": False, "error": "No tracks returned"}
+            except Exception as e:
+                return {"track_num": track_num, "success": False, "error": str(e)}
+
+        async def generate_batch(kie_svc, start_track_num, batch_size):
+            """Generate a batch of tracks in parallel."""
+            tasks = []
+            for i in range(batch_size):
+                tasks.append(generate_single_track(kie_svc, start_track_num + i))
+            return await asyncio.gather(*tasks)
+
         # Generate music until we reach target duration
         while total_duration < target_duration_seconds:
-            track_number += 1
+            # Determine batch size (don't exceed what we need)
+            remaining_estimate = (target_duration_seconds - total_duration) / 180  # ~3 min per track
+            batch_size = min(concurrent_tracks, max(1, int(remaining_estimate) + 1))
+
+            start_track = track_number + 1
 
             update_progress(
                 "generating_audio",
-                f"Generating track {track_number}...",
+                f"Generating tracks {start_track} to {start_track + batch_size - 1} ({batch_size} in parallel)...",
                 current_track=track_number
             )
 
-            try:
-                # Generate music
-                job_logger.info(f"Requesting track {track_number} from Kie AI...")
-                task_id = run_async(
-                    kie_service.generate_music(
-                        prompt=prompt,
-                        custom_mode=custom_mode,
-                        instrumental=instrumental,
-                        model=model,
-                        style=style,
-                        title=f"{title or 'Track'} {track_number}" if title else None
-                    )
-                )
+            job_logger.info(f"Starting batch generation: tracks {start_track}-{start_track + batch_size - 1}")
 
-                job_logger.info(f"Kie AI task ID: {task_id}")
+            # Generate batch in parallel
+            batch_results = run_async(generate_batch(kie_service, start_track, batch_size))
 
-                update_progress(
-                    "generating_audio",
-                    f"Waiting for track {track_number} to complete...",
-                    current_track=track_number
-                )
+            # Process results
+            successful_tracks = 0
+            for result in sorted(batch_results, key=lambda x: x["track_num"]):
+                track_num = result["track_num"]
 
-                # Wait for completion
-                tracks_data = run_async(kie_service.wait_for_completion(task_id))
+                if not result["success"]:
+                    job_logger.error(f"Track {track_num} failed: {result.get('error', 'Unknown error')}")
+                    if "Insufficient credits" in str(result.get("error", "")) or "Invalid API key" in str(result.get("error", "")):
+                        raise KieAIError(result["error"])
+                    continue
 
-                if not tracks_data:
-                    raise KieAIError("No tracks returned from API")
+                track_data = result["data"]
+                audio_url = track_data.get("audioUrl") or track_data.get("audio_url")
+                track_duration = track_data.get("duration", 0)
+                track_title = track_data.get("title", f"Track {track_num}")
+                track_id = track_data.get("id", "")
 
-                job_logger.info(f"Received {len(tracks_data)} track(s) from Kie AI")
+                if not audio_url:
+                    job_logger.warning(f"Track {track_num} has no audio URL, skipping")
+                    continue
 
-                # Process each track from the response (API returns multiple variations)
-                for track_data in tracks_data:
-                    audio_url = track_data.get("audioUrl") or track_data.get("audio_url")
-                    track_duration = track_data.get("duration", 0)
-                    track_title = track_data.get("title", f"Track {track_number}")
-                    track_id = track_data.get("id", "")
-
-                    if not audio_url:
-                        job_logger.warning(f"Track {track_number} has no audio URL, skipping")
-                        continue
-
-                    # Check if adding this track would exceed max duration
-                    if total_duration + track_duration > max_duration_seconds:
-                        job_logger.info(f"Reached max duration, stopping generation")
-                        break
-
-                    # Download the track
-                    track_file = tracks_dir / f"track_{track_number:03d}.mp3"
-                    job_logger.info(f"Downloading track {track_number}: {audio_url[:50]}...")
-                    run_async(kie_service.download_audio(audio_url, track_file))
-
-                    generated_tracks.append((track_file, track_title, track_id))
-
-                    # Store track info for metadata
-                    track_info = {
-                        "track_number": track_number,
-                        "filename": f"track_{track_number:03d}.mp3",
-                        "title": track_title,
-                        "kie_track_id": track_id,
-                        "duration_seconds": track_duration,
-                        "duration_formatted": format_duration(track_duration),
-                        "downloaded_at": datetime.utcnow().isoformat()
-                    }
-                    tracks_info.append(track_info)
-                    metadata["tracks_info"] = tracks_info
-                    save_metadata()
-
-                    total_duration += track_duration
-
-                    update_progress(
-                        "generating_audio",
-                        f"Downloaded track {track_number} ({format_duration(track_duration)})",
-                        current_track=track_number,
-                        total_duration_seconds=total_duration,
-                        total_duration_formatted=format_duration(total_duration)
-                    )
-
-                    job_logger.info(
-                        f"Track {track_number} saved: {track_title} "
-                        f"(duration: {format_duration(track_duration)}, "
-                        f"total: {format_duration(total_duration)})"
-                    )
-
-                    # Check if we've reached target
-                    if total_duration >= target_duration_seconds:
-                        job_logger.info("Target duration reached!")
-                        break
-
-                    # Only use first track from each generation
+                # Check if adding this track would exceed max duration
+                if total_duration + track_duration > max_duration_seconds:
+                    job_logger.info(f"Reached max duration, stopping generation")
                     break
 
-            except KieAIError as e:
-                job_logger.error(f"Kie AI error on track {track_number}: {e}")
-                if "Insufficient credits" in str(e) or "Invalid API key" in str(e):
-                    raise
-                # Continue with next track for other errors
-                continue
+                # Download the track
+                track_file = tracks_dir / f"track_{track_num:03d}.mp3"
+                job_logger.info(f"Downloading track {track_num}: {audio_url[:50]}...")
+                run_async(kie_service.download_audio(audio_url, track_file))
+
+                generated_tracks.append((track_file, track_title, track_id))
+                successful_tracks += 1
+                track_number = track_num
+
+                # Store track info for metadata
+                track_info_item = {
+                    "track_number": track_num,
+                    "filename": f"track_{track_num:03d}.mp3",
+                    "title": track_title,
+                    "kie_track_id": track_id,
+                    "duration_seconds": track_duration,
+                    "duration_formatted": format_duration(track_duration),
+                    "downloaded_at": datetime.utcnow().isoformat()
+                }
+                tracks_info.append(track_info_item)
+                metadata["tracks_info"] = tracks_info
+                save_metadata()
+
+                total_duration += track_duration
+
+                job_logger.info(
+                    f"Track {track_num} saved: {track_title} "
+                    f"(duration: {format_duration(track_duration)}, "
+                    f"total: {format_duration(total_duration)})"
+                )
+
+                # Check if we've reached target
+                if total_duration >= target_duration_seconds:
+                    job_logger.info("Target duration reached!")
+                    break
+
+            update_progress(
+                "generating_audio",
+                f"Batch complete: {successful_tracks} tracks downloaded. Total: {format_duration(total_duration)}",
+                current_track=track_number,
+                total_duration_seconds=total_duration,
+                total_duration_formatted=format_duration(total_duration)
+            )
+
+            # If no tracks were successful in this batch, we might have an issue
+            if successful_tracks == 0:
+                job_logger.warning("No tracks succeeded in this batch, trying again...")
+                # Small delay before retry
+                run_async(asyncio.sleep(5))
 
         if not generated_tracks:
             raise KieAIError("No tracks were successfully generated")

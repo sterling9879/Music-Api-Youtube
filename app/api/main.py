@@ -290,6 +290,7 @@ async def start_generation(
     model: str = Form("V4"),
     style: Optional[str] = Form(None),
     title: Optional[str] = Form(None),
+    concurrent_tracks: int = Form(1),
 ):
     """
     Start a new music video generation job.
@@ -354,6 +355,9 @@ async def start_generation(
         logger.error(f"Failed to save video: {e}")
         raise HTTPException(status_code=500, detail="Failed to save video file")
 
+    # Validate concurrent_tracks
+    concurrent_tracks = max(1, min(4, concurrent_tracks))  # Limit between 1-4
+
     # Start Celery task
     try:
         task = generate_music_video.delay(
@@ -365,7 +369,8 @@ async def start_generation(
             instrumental=instrumental,
             model=model,
             style=style,
-            title=title
+            title=title,
+            concurrent_tracks=concurrent_tracks
         )
 
         logger.info(f"Started job {job_id} with task {task.id}")

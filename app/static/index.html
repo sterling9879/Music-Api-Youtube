@@ -684,6 +684,17 @@
                         </div>
                     </div>
 
+                    <!-- Concurrent Tracks -->
+                    <div class="form-group">
+                        <label for="concurrent-tracks">Parallel Requests <span class="label-hint">(Generate multiple tracks at once - faster but uses more API credits)</span></label>
+                        <select id="concurrent-tracks" name="concurrent_tracks">
+                            <option value="1">1 track at a time (slower, saves credits)</option>
+                            <option value="2" selected>2 tracks in parallel</option>
+                            <option value="3">3 tracks in parallel</option>
+                            <option value="4">4 tracks in parallel (fastest)</option>
+                        </select>
+                    </div>
+
                     <!-- Advanced Options -->
                     <div id="advanced-options" style="display: none;">
                         <div class="row">
