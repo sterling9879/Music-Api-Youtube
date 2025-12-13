@@ -140,9 +140,10 @@ def validate_video_format(file_path: Path) -> bool:
 class VideoProcessor:
     """Service for processing video files with maximum resource utilization."""
 
-    def __init__(self, work_dir: Path):
+    def __init__(self, work_dir: Path, log_callback=None):
         self.work_dir = work_dir
         self.work_dir.mkdir(parents=True, exist_ok=True)
+        self.log_callback = log_callback  # Optional callback for job-specific logging
 
         # Get system resources
         self.cpu_count, self.mem_mb = get_system_resources()
@@ -153,7 +154,13 @@ class VideoProcessor:
         usable_mem = int(self.mem_mb * 0.7)
         self.buffer_size = min(usable_mem, 2048)  # Max 2GB buffer per operation
 
-        logger.info(f"VideoProcessor initialized: {self.threads} threads, {self.mem_mb}MB RAM available, {self.buffer_size}MB buffer")
+        self._log(f"VideoProcessor initialized: {self.threads} threads, {self.mem_mb}MB RAM available, {self.buffer_size}MB buffer")
+
+    def _log(self, message: str):
+        """Log message to both standard logger and job-specific callback."""
+        logger.info(message)
+        if self.log_callback:
+            self.log_callback(message)
 
     def loop_video_to_duration(
         self,
@@ -173,11 +180,11 @@ class VideoProcessor:
 
         num_loops = math.ceil(target_duration / video_duration)
 
-        logger.info(
+        self._log(
             f"Looping video {num_loops} times "
             f"(source: {video_duration:.2f}s @ {width}x{height}, target: {target_duration:.2f}s @ {HD_WIDTH}x{HD_HEIGHT})"
         )
-        logger.info(f"Using {self.threads} threads, {self.buffer_size}MB buffer")
+        self._log(f"Using {self.threads} threads, {self.buffer_size}MB buffer")
 
         # Scale filter for HD output
         scale_filter = f"scale={HD_WIDTH}:{HD_HEIGHT}:force_original_aspect_ratio=decrease,pad={HD_WIDTH}:{HD_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black,setsar=1"
@@ -188,10 +195,10 @@ class VideoProcessor:
             )
 
             if result.returncode != 0:
-                logger.error(f"FFmpeg loop error: {result.stderr}")
+                self._log(f"FFmpeg loop error: {result.stderr}")
                 raise VideoProcessingError(f"Video looping failed: {result.stderr[-500:]}")
 
-            logger.info(f"Created HD looped video at {output_path}")
+            self._log(f"Created HD looped video at {output_path}")
             return output_path
 
         except subprocess.TimeoutExpired:
@@ -214,8 +221,8 @@ class VideoProcessor:
             for _ in range(num_loops):
                 f.write(f"file '{input_video.absolute()}'\n")
 
-        logger.info(f"Optimized encoding: {num_loops} loops, {self.threads} threads, {self.buffer_size}MB buffer")
-        logger.info(f"Target duration: {target_duration:.0f}s ({target_duration/60:.1f} min)")
+        self._log(f"Optimized encoding: {num_loops} loops, {self.threads} threads, {self.buffer_size}MB buffer")
+        self._log(f"Target duration: {target_duration:.0f}s ({target_duration/60:.1f} min)")
 
         # Calculate x264 specific threading options
         lookahead_threads = max(1, self.threads // 4)
@@ -256,8 +263,8 @@ class VideoProcessor:
             str(output_path)
         ]
 
-        logger.info(f"Starting FFmpeg encoding...")
-        logger.info(f"=" * 50)
+        self._log(f"Starting FFmpeg encoding...")
+        self._log(f"=" * 50)
 
         # Run with real-time progress output
         import time
@@ -311,7 +318,7 @@ class VideoProcessor:
                     else:
                         eta_str = "calculating..."
 
-                    logger.info(
+                    self._log(
                         f"Progress: {progress_pct:.1f}% | "
                         f"Encoded: {current_time/60:.1f}min / {target_duration/60:.1f}min | "
                         f"Speed: {speed:.1f}x | "
@@ -323,8 +330,8 @@ class VideoProcessor:
             process.wait(timeout=7200)
 
             elapsed = time.time() - start_time
-            logger.info(f"=" * 50)
-            logger.info(f"FFmpeg encoding completed in {elapsed/60:.1f} minutes")
+            self._log(f"=" * 50)
+            self._log(f"FFmpeg encoding completed in {elapsed/60:.1f} minutes")
 
             # Get stderr for error checking
             stderr = process.stderr.read()
@@ -356,7 +363,7 @@ class VideoProcessor:
         Combine video and audio with stream copy (instant).
         """
         try:
-            logger.info(f"Combining video and audio (codec: {video_codec}, threads: {self.threads})...")
+            self._log(f"Combining video and audio (codec: {video_codec}, threads: {self.threads})...")
 
             cmd = [
                 "ffmpeg",
@@ -384,10 +391,10 @@ class VideoProcessor:
             )
 
             if result.returncode != 0:
-                logger.error(f"FFmpeg combine error: {result.stderr}")
+                self._log(f"FFmpeg combine error: {result.stderr}")
                 raise VideoProcessingError(f"Video/audio combining failed: {result.stderr}")
 
-            logger.info(f"Created final HD video at {output_path}")
+            self._log(f"Created final HD video at {output_path}")
             return output_path
 
         except subprocess.TimeoutExpired:
@@ -403,13 +410,13 @@ class VideoProcessor:
         """
         Complete video processing pipeline with maximum resource usage.
         """
-        logger.info(f"=" * 60)
-        logger.info(f"Starting HD video processing pipeline")
-        logger.info(f"System: {self.cpu_count} CPUs, {self.mem_mb}MB RAM")
-        logger.info(f"Using: {self.threads} threads, {self.buffer_size}MB buffer")
-        logger.info(f"Input: {input_video}")
-        logger.info(f"Target: {audio_duration:.2f}s ({audio_duration/60:.1f} min) @ {HD_WIDTH}x{HD_HEIGHT}")
-        logger.info(f"=" * 60)
+        self._log(f"=" * 60)
+        self._log(f"Starting HD video processing pipeline")
+        self._log(f"System: {self.cpu_count} CPUs, {self.mem_mb}MB RAM")
+        self._log(f"Using: {self.threads} threads, {self.buffer_size}MB buffer")
+        self._log(f"Input: {input_video}")
+        self._log(f"Target: {audio_duration:.2f}s ({audio_duration/60:.1f} min) @ {HD_WIDTH}x{HD_HEIGHT}")
+        self._log(f"=" * 60)
 
         looped_video = self.work_dir / "looped_video.mp4"
         self.loop_video_to_duration(input_video, audio_duration, looped_video)
@@ -419,7 +426,7 @@ class VideoProcessor:
         if looped_video.exists():
             looped_video.unlink()
 
-        logger.info(f"HD video processing complete: {output_path}")
+        self._log(f"HD video processing complete: {output_path}")
         return output_path
 
     def extract_thumbnail(

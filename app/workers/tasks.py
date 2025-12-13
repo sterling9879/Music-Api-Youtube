@@ -166,7 +166,7 @@ def generate_music_video(
         # Initialize services
         kie_service = KieAIService(api_key)
         audio_processor = AudioProcessor(job_dir / "audio_work")
-        video_processor = VideoProcessor(job_dir / "video_work")
+        video_processor = VideoProcessor(job_dir / "video_work", log_callback=job_logger.info)
 
         target_duration_seconds = TARGET_DURATION_MINUTES * 60
         max_duration_seconds = MAX_DURATION_MINUTES * 60
@@ -664,7 +664,7 @@ def create_mix_video(
 
         # Initialize processors
         audio_processor = AudioProcessor(job_dir / "audio_work")
-        video_processor = VideoProcessor(job_dir / "video_work")
+        video_processor = VideoProcessor(job_dir / "video_work", log_callback=job_logger.info)
 
         # Concatenate audio
         update_progress(
