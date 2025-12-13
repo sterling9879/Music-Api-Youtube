@@ -1,11 +1,12 @@
 """
 Video processing service for looping videos and combining with audio.
-Optimized for HD output and fast encoding.
+Optimized for HD output and maximum resource utilization.
 """
 
 import subprocess
 import logging
 import math
+import os
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -24,18 +25,34 @@ class VideoProcessingError(Exception):
     pass
 
 
+def get_system_resources():
+    """Get system resources for optimal encoding."""
+    try:
+        cpu_count = os.cpu_count() or 4
+
+        # Get available memory in MB
+        try:
+            with open('/proc/meminfo', 'r') as f:
+                for line in f:
+                    if 'MemAvailable' in line:
+                        mem_kb = int(line.split()[1])
+                        mem_mb = mem_kb // 1024
+                        break
+                else:
+                    mem_mb = 4096  # Default 4GB
+        except Exception:
+            mem_mb = 4096
+
+        return cpu_count, mem_mb
+    except Exception:
+        return 4, 4096
+
+
 def get_video_info(file_path: Path) -> Tuple[float, int, int, float]:
     """
     Get video information using ffprobe.
-
-    Args:
-        file_path: Path to the video file
-
-    Returns:
-        Tuple of (duration_seconds, width, height, fps)
     """
     try:
-        # Get duration
         duration_result = subprocess.run(
             [
                 "ffprobe",
@@ -49,7 +66,6 @@ def get_video_info(file_path: Path) -> Tuple[float, int, int, float]:
             timeout=30
         )
 
-        # Get video stream info
         stream_result = subprocess.run(
             [
                 "ffprobe",
@@ -69,7 +85,6 @@ def get_video_info(file_path: Path) -> Tuple[float, int, int, float]:
 
         duration = float(duration_result.stdout.strip())
 
-        # Parse stream info
         stream_parts = stream_result.stdout.strip().split(",")
         if len(stream_parts) >= 3:
             width = int(stream_parts[0])
@@ -77,7 +92,6 @@ def get_video_info(file_path: Path) -> Tuple[float, int, int, float]:
             fps_parts = stream_parts[2].split("/")
             fps = float(fps_parts[0]) / float(fps_parts[1]) if len(fps_parts) == 2 else 30.0
         else:
-            # Default values if parsing fails
             width, height, fps = 1920, 1080, 30.0
 
         return duration, width, height, fps
@@ -89,15 +103,7 @@ def get_video_info(file_path: Path) -> Tuple[float, int, int, float]:
 
 
 def validate_video_format(file_path: Path) -> bool:
-    """
-    Validate that the file is a supported video format.
-
-    Args:
-        file_path: Path to the video file
-
-    Returns:
-        True if valid, raises exception otherwise
-    """
+    """Validate that the file is a supported video format."""
     if not file_path.exists():
         raise VideoProcessingError(f"File not found: {file_path}")
 
@@ -107,7 +113,6 @@ def validate_video_format(file_path: Path) -> bool:
             f"Allowed: {', '.join(ALLOWED_VIDEO_EXTENSIONS)}"
         )
 
-    # Verify it's a valid video file
     try:
         result = subprocess.run(
             [
@@ -132,28 +137,23 @@ def validate_video_format(file_path: Path) -> bool:
         raise VideoProcessingError("Video validation timeout")
 
 
-def get_cpu_threads() -> int:
-    """Get number of CPU threads for encoding."""
-    try:
-        import os
-        return max(1, os.cpu_count() - 1)  # Leave one core free
-    except Exception:
-        return 4
-
-
 class VideoProcessor:
-    """Service for processing video files with HD output optimization."""
+    """Service for processing video files with maximum resource utilization."""
 
     def __init__(self, work_dir: Path):
-        """
-        Initialize the video processor.
-
-        Args:
-            work_dir: Working directory for temporary files
-        """
         self.work_dir = work_dir
         self.work_dir.mkdir(parents=True, exist_ok=True)
-        self.threads = get_cpu_threads()
+
+        # Get system resources
+        self.cpu_count, self.mem_mb = get_system_resources()
+        self.threads = self.cpu_count  # Use ALL CPU cores
+
+        # Calculate optimal buffer sizes based on available memory
+        # Use up to 70% of available memory for FFmpeg
+        usable_mem = int(self.mem_mb * 0.7)
+        self.buffer_size = min(usable_mem, 2048)  # Max 2GB buffer per operation
+
+        logger.info(f"VideoProcessor initialized: {self.threads} threads, {self.mem_mb}MB RAM available, {self.buffer_size}MB buffer")
 
     def loop_video_to_duration(
         self,
@@ -162,16 +162,7 @@ class VideoProcessor:
         output_path: Path
     ) -> Path:
         """
-        Create a looped video that matches the target duration.
-        Outputs in HD 1080p with optimized encoding.
-
-        Args:
-            input_video: Path to the input video
-            target_duration: Target duration in seconds
-            output_path: Path for the output video
-
-        Returns:
-            Path to the looped video
+        Create a looped video in HD with maximum resource utilization.
         """
         validate_video_format(input_video)
 
@@ -180,23 +171,19 @@ class VideoProcessor:
         if video_duration <= 0:
             raise VideoProcessingError("Invalid video duration")
 
-        # Calculate how many loops we need
         num_loops = math.ceil(target_duration / video_duration)
 
         logger.info(
             f"Looping video {num_loops} times "
             f"(source: {video_duration:.2f}s @ {width}x{height}, target: {target_duration:.2f}s @ {HD_WIDTH}x{HD_HEIGHT})"
         )
+        logger.info(f"Using {self.threads} threads, {self.buffer_size}MB buffer")
 
-        input_ext = input_video.suffix.lower()
-
-        # Build scale filter to ensure HD output
-        # Use scale with pad to maintain aspect ratio and fit HD frame
+        # Scale filter for HD output
         scale_filter = f"scale={HD_WIDTH}:{HD_HEIGHT}:force_original_aspect_ratio=decrease,pad={HD_WIDTH}:{HD_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black,setsar=1"
 
         try:
-            # Always use concat method for reliability and speed
-            result = self._loop_with_concat_hd(
+            result = self._loop_with_concat_optimized(
                 input_video, target_duration, output_path, num_loops, scale_filter
             )
 
@@ -210,7 +197,7 @@ class VideoProcessor:
         except subprocess.TimeoutExpired:
             raise VideoProcessingError("Video looping timeout (exceeded 2 hours)")
 
-    def _loop_with_concat_hd(
+    def _loop_with_concat_optimized(
         self,
         input_video: Path,
         target_duration: float,
@@ -219,51 +206,66 @@ class VideoProcessor:
         scale_filter: str
     ) -> subprocess.CompletedProcess:
         """
-        Loop video using concat demuxer with HD scaling - fast and reliable.
+        Loop video with maximum CPU and memory utilization.
         """
-        # Create a concat file
         concat_file = self.work_dir / "concat_list.txt"
         with open(concat_file, "w") as f:
             for _ in range(num_loops):
                 f.write(f"file '{input_video.absolute()}'\n")
 
-        logger.info(f"Using optimized HD concat method with {num_loops} repetitions...")
-        logger.info(f"Output: {HD_WIDTH}x{HD_HEIGHT} @ {OUTPUT_FPS}fps, using {self.threads} threads")
+        logger.info(f"Optimized encoding: {num_loops} loops, {self.threads} threads, {self.buffer_size}MB buffer")
+
+        # Calculate x264 specific threading options
+        lookahead_threads = max(1, self.threads // 4)
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            # Input options - large buffer for fast reading
+            "-thread_queue_size", "4096",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(concat_file),
+            # Duration limit
+            "-t", str(target_duration),
+            # Video filters
+            "-vf", f"{scale_filter},fps={OUTPUT_FPS}",
+            # Codec settings - optimized for speed
+            "-c:v", "libx264",
+            "-preset", "ultrafast",  # Fastest preset - uses more CPU but finishes faster
+            "-tune", "fastdecode",   # Optimize for fast decoding
+            "-crf", "23",            # Slightly lower quality for speed
+            "-profile:v", "high",
+            "-level", "4.1",
+            "-pix_fmt", "yuv420p",
+            # Threading - use ALL resources
+            "-threads", str(self.threads),
+            "-x264-params", f"threads={self.threads}:lookahead_threads={lookahead_threads}:sliced_threads=1",
+            # Memory/Buffer optimization
+            "-bufsize", f"{self.buffer_size}M",
+            "-maxrate", "20M",       # High bitrate for quality
+            # Disable audio
+            "-an",
+            # Output optimization
+            "-movflags", "+faststart",
+            str(output_path)
+        ]
+
+        logger.info(f"Running FFmpeg with optimized settings...")
+
+        # Set environment for maximum resource usage
+        env = os.environ.copy()
+        env['FFREPORT'] = f'file={self.work_dir}/ffmpeg.log:level=32'
 
         result = subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(concat_file),
-                "-t", str(target_duration),
-                # Video filters: scale to HD, set framerate
-                "-vf", f"{scale_filter},fps={OUTPUT_FPS}",
-                # Fast H.264 encoding optimized for speed
-                "-c:v", "libx264",
-                "-preset", "veryfast",  # Much faster than "fast"
-                "-tune", "film",  # Optimize for video content
-                "-crf", "20",  # Good quality (lower = better, 18-23 is good)
-                "-profile:v", "high",  # High profile for better compression
-                "-level", "4.1",  # Compatible with most devices
-                "-pix_fmt", "yuv420p",
-                # Threading for speed
-                "-threads", str(self.threads),
-                # No audio (will be added later)
-                "-an",
-                # Fast seeking
-                "-movflags", "+faststart",
-                str(output_path)
-            ],
+            cmd,
             capture_output=True,
             text=True,
-            timeout=7200  # 2 hour timeout
+            timeout=7200,
+            env=env
         )
 
-        # Cleanup concat file
         concat_file.unlink(missing_ok=True)
-
         return result
 
     def combine_video_audio(
@@ -274,31 +276,21 @@ class VideoProcessor:
         video_codec: str = "copy"
     ) -> Path:
         """
-        Combine video and audio into final output.
-        Uses stream copy for video (instant) since video is already encoded.
-
-        Args:
-            video_path: Path to the video file
-            audio_path: Path to the audio file
-            output_path: Path for the output file
-            video_codec: Video codec to use (copy or libx264)
-
-        Returns:
-            Path to the combined file
+        Combine video and audio with stream copy (instant).
         """
         try:
-            logger.info(f"Combining video and audio (video codec: {video_codec})...")
+            logger.info(f"Combining video and audio (codec: {video_codec}, threads: {self.threads})...")
 
-            # Build FFmpeg command - use copy for instant muxing
             cmd = [
                 "ffmpeg",
                 "-y",
+                "-thread_queue_size", "4096",
                 "-i", str(video_path),
                 "-i", str(audio_path),
-                "-c:v", video_codec,  # Copy video stream (no re-encoding)
+                "-c:v", video_codec,
                 "-c:a", "aac",
-                "-b:a", "320k",  # High quality audio
-                "-ar", "48000",  # 48kHz audio sample rate
+                "-b:a", "320k",
+                "-ar", "48000",
                 "-map", "0:v:0",
                 "-map", "1:a:0",
                 "-shortest",
@@ -311,7 +303,7 @@ class VideoProcessor:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=3600  # 1 hour should be enough for muxing
+                timeout=3600
             )
 
             if result.returncode != 0:
@@ -332,30 +324,21 @@ class VideoProcessor:
         output_path: Path
     ) -> Path:
         """
-        Complete video processing: loop video in HD and combine with audio.
-
-        Args:
-            input_video: Original video file
-            audio_path: Audio file to combine
-            audio_duration: Duration of the audio in seconds
-            output_path: Final output path
-
-        Returns:
-            Path to the final HD video
+        Complete video processing pipeline with maximum resource usage.
         """
-        logger.info(f"Starting HD video processing pipeline...")
+        logger.info(f"=" * 60)
+        logger.info(f"Starting HD video processing pipeline")
+        logger.info(f"System: {self.cpu_count} CPUs, {self.mem_mb}MB RAM")
+        logger.info(f"Using: {self.threads} threads, {self.buffer_size}MB buffer")
         logger.info(f"Input: {input_video}")
-        logger.info(f"Target duration: {audio_duration:.2f}s ({audio_duration/60:.1f} min)")
-        logger.info(f"Output resolution: {HD_WIDTH}x{HD_HEIGHT}")
+        logger.info(f"Target: {audio_duration:.2f}s ({audio_duration/60:.1f} min) @ {HD_WIDTH}x{HD_HEIGHT}")
+        logger.info(f"=" * 60)
 
-        # Create looped HD video
         looped_video = self.work_dir / "looped_video.mp4"
         self.loop_video_to_duration(input_video, audio_duration, looped_video)
 
-        # Combine with audio (fast - just muxing)
         self.combine_video_audio(looped_video, audio_path, output_path)
 
-        # Cleanup looped video
         if looped_video.exists():
             looped_video.unlink()
 
@@ -368,17 +351,7 @@ class VideoProcessor:
         output_path: Path,
         timestamp: str = "00:00:05"
     ) -> Path:
-        """
-        Extract a thumbnail from the video.
-
-        Args:
-            video_path: Path to the video
-            output_path: Path for the thumbnail
-            timestamp: Timestamp to extract from
-
-        Returns:
-            Path to the thumbnail
-        """
+        """Extract a thumbnail from the video."""
         try:
             result = subprocess.run(
                 [
