@@ -82,7 +82,9 @@ def generate_music_video(
     model: str = "V4",
     style: Optional[str] = None,
     title: Optional[str] = None,
-    concurrent_tracks: int = 1
+    concurrent_tracks: int = 1,
+    channel_id: Optional[str] = None,
+    channel_name: Optional[str] = None
 ):
     """
     Main task for generating music video.
@@ -108,6 +110,8 @@ def generate_music_video(
     job_logger = JobLogger(job_dir, job_id)
     job_logger.info(f"Starting job with prompt: {prompt[:100]}...")
     job_logger.info(f"Settings: custom_mode={custom_mode}, instrumental={instrumental}, model={model}")
+    if channel_id:
+        job_logger.info(f"Channel: {channel_name} ({channel_id})")
 
     # Initialize progress
     progress = {
@@ -128,6 +132,8 @@ def generate_music_video(
         "model": model,
         "style": style,
         "title": title,
+        "channel_id": channel_id,
+        "channel_name": channel_name,
         "status": "processing",
         "created_at": datetime.utcnow().isoformat(),
         "completed_at": None,
@@ -463,7 +469,9 @@ def create_mix_video(
     job_id: str,
     source_job_ids: list,
     video_filename: str,
-    target_duration_minutes: int = 120
+    target_duration_minutes: int = 120,
+    channel_id: Optional[str] = None,
+    channel_name: Optional[str] = None
 ):
     """
     Create a mix video from existing tracks.
@@ -492,6 +500,8 @@ def create_mix_video(
     job_logger = JobLogger(job_dir, job_id)
     job_logger.info(f"Starting mix job from {len(source_job_ids)} source jobs")
     job_logger.info(f"Target duration: {target_duration_minutes} minutes")
+    if channel_id:
+        job_logger.info(f"Channel: {channel_name} ({channel_id})")
 
     # Initialize progress
     progress = {
@@ -509,6 +519,8 @@ def create_mix_video(
         "job_type": "mix",
         "source_jobs": source_job_ids,
         "target_duration_minutes": target_duration_minutes,
+        "channel_id": channel_id,
+        "channel_name": channel_name,
         "status": "processing",
         "created_at": datetime.utcnow().isoformat(),
         "completed_at": None,

@@ -28,6 +28,7 @@ from app.workers.celery_app import celery_app
 from app.config import (
     UPLOAD_DIR,
     OUTPUT_DIR,
+    CHANNELS_FILE,
     ALLOWED_VIDEO_EXTENSIONS,
     MAX_UPLOAD_SIZE_BYTES,
     HOST,
@@ -63,6 +64,91 @@ STATIC_DIR = Path(__file__).parent.parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
+# ==================== CHANNELS MANAGEMENT ====================
+
+def load_channels():
+    """Load channels from JSON file."""
+    if not CHANNELS_FILE.exists():
+        return []
+    try:
+        with open(CHANNELS_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def save_channels(channels: list):
+    """Save channels to JSON file."""
+    with open(CHANNELS_FILE, "w") as f:
+        json.dump(channels, f, indent=2)
+
+
+def get_channel_by_id(channel_id: str):
+    """Get a channel by its ID."""
+    channels = load_channels()
+    for channel in channels:
+        if channel["id"] == channel_id:
+            return channel
+    return None
+
+
+@app.get("/channels")
+async def list_channels():
+    """List all channels."""
+    channels = load_channels()
+    return {"channels": channels}
+
+
+@app.post("/channels")
+async def create_channel(
+    name: str = Form(...),
+    description: str = Form("")
+):
+    """Create a new channel."""
+    channels = load_channels()
+
+    # Generate channel ID (slug from name)
+    import re
+    channel_id = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+
+    # Check if already exists
+    for ch in channels:
+        if ch["id"] == channel_id:
+            raise HTTPException(status_code=400, detail="Channel with this name already exists")
+
+    new_channel = {
+        "id": channel_id,
+        "name": name,
+        "description": description,
+        "created_at": datetime.utcnow().isoformat()
+    }
+
+    channels.append(new_channel)
+    save_channels(channels)
+
+    logger.info(f"Created channel: {channel_id}")
+    return {"message": "Channel created", "channel": new_channel}
+
+
+@app.delete("/channels/{channel_id}")
+async def delete_channel(channel_id: str):
+    """Delete a channel (does not delete jobs)."""
+    channels = load_channels()
+
+    # Find and remove channel
+    new_channels = [ch for ch in channels if ch["id"] != channel_id]
+
+    if len(new_channels) == len(channels):
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    save_channels(new_channels)
+    logger.info(f"Deleted channel: {channel_id}")
+
+    return {"message": f"Channel '{channel_id}' deleted"}
+
+
+# ==================== ROUTES ====================
+
 @app.get("/")
 async def root():
     """Serve the frontend."""
@@ -72,10 +158,12 @@ async def root():
 @app.get("/jobs")
 async def list_jobs(
     limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, ge=0)
+    offset: int = Query(0, ge=0),
+    channel: Optional[str] = Query(None, description="Filter by channel ID")
 ):
     """
     List all jobs with their metadata (history).
+    Optionally filter by channel.
     """
     jobs = []
 
@@ -89,11 +177,8 @@ async def list_jobs(
         reverse=True
     )
 
-    total = len(job_dirs)
-
-    # Apply pagination
-    job_dirs = job_dirs[offset:offset + limit]
-
+    # Filter by channel if specified
+    filtered_job_dirs = []
     for job_dir in job_dirs:
         metadata_path = job_dir / "metadata.json"
         if metadata_path.exists():
@@ -101,6 +186,26 @@ async def list_jobs(
                 with open(metadata_path) as f:
                     metadata = json.load(f)
 
+                job_channel = metadata.get("channel_id")
+
+                # If channel filter is set, only include matching jobs
+                if channel is not None:
+                    if job_channel != channel:
+                        continue
+
+                filtered_job_dirs.append((job_dir, metadata))
+            except Exception:
+                if channel is None:  # Include broken metadata jobs only if no filter
+                    filtered_job_dirs.append((job_dir, None))
+
+    total = len(filtered_job_dirs)
+
+    # Apply pagination
+    filtered_job_dirs = filtered_job_dirs[offset:offset + limit]
+
+    for job_dir, metadata in filtered_job_dirs:
+        if metadata:
+            try:
                 # Check for tracks directory
                 tracks_dir = job_dir / "tracks"
                 tracks_count = len(list(tracks_dir.glob("*.mp3"))) if tracks_dir.exists() else 0
@@ -121,6 +226,8 @@ async def list_jobs(
                     "total_tracks": metadata.get("total_tracks", tracks_count),
                     "total_duration": metadata.get("total_duration", "00:00:00"),
                     "model": metadata.get("model", "V4"),
+                    "channel_id": metadata.get("channel_id"),
+                    "channel_name": metadata.get("channel_name"),
                     "has_video": has_video,
                     "has_audio": has_audio,
                     "has_logs": has_logs,
@@ -133,8 +240,14 @@ async def list_jobs(
                     "status": "unknown",
                     "error": str(e)
                 })
+        else:
+            jobs.append({
+                "job_id": job_dir.name,
+                "status": "unknown",
+                "error": "Failed to read metadata"
+            })
 
-    return {"jobs": jobs, "total": total, "limit": limit, "offset": offset}
+    return {"jobs": jobs, "total": total, "limit": limit, "offset": offset, "channel": channel}
 
 
 @app.get("/jobs/{job_id}")
@@ -281,9 +394,12 @@ async def download_track(job_id: str, filename: str):
 
 
 @app.get("/jobs-with-tracks")
-async def list_jobs_with_tracks():
+async def list_jobs_with_tracks(
+    channel: Optional[str] = Query(None, description="Filter by channel ID")
+):
     """
     List all jobs that have tracks available for mixing.
+    Optionally filter by channel.
     """
     jobs = []
 
@@ -312,23 +428,34 @@ async def list_jobs_with_tracks():
             "tracks_count": len(track_files),
             "prompt": "",
             "created_at": None,
-            "total_duration": "00:00:00"
+            "total_duration": "00:00:00",
+            "channel_id": None,
+            "channel_name": None
         }
 
         if metadata_path.exists():
             try:
                 with open(metadata_path) as f:
                     metadata = json.load(f)
+
+                    # Filter by channel if specified
+                    job_channel = metadata.get("channel_id")
+                    if channel is not None and job_channel != channel:
+                        continue
+
                     job_info["prompt"] = metadata.get("prompt", "")[:100]
                     job_info["created_at"] = metadata.get("created_at")
                     job_info["total_duration"] = metadata.get("total_duration", "00:00:00")
                     job_info["job_type"] = metadata.get("job_type", "generate")
+                    job_info["channel_id"] = job_channel
+                    job_info["channel_name"] = metadata.get("channel_name")
             except Exception:
-                pass
+                if channel is not None:  # Skip jobs with broken metadata when filtering
+                    continue
 
         jobs.append(job_info)
 
-    return {"jobs": jobs}
+    return {"jobs": jobs, "channel": channel}
 
 
 @app.post("/mix")
@@ -336,6 +463,7 @@ async def create_mix(
     video: UploadFile = File(...),
     job_ids: str = Form(...),  # Comma-separated job IDs
     target_duration: int = Form(120),  # Target duration in minutes
+    channel: Optional[str] = Form(None),  # Channel ID for the mix output
 ):
     """
     Create a mix video from tracks of selected jobs.
@@ -343,12 +471,20 @@ async def create_mix(
     - Upload a video file
     - Provide comma-separated job IDs to source tracks from
     - Optionally specify target duration in minutes (default: 120)
+    - Optionally specify channel for the output
     """
     # Parse job IDs
     source_job_ids = [jid.strip() for jid in job_ids.split(",") if jid.strip()]
 
     if not source_job_ids:
         raise HTTPException(status_code=400, detail="No job IDs provided")
+
+    # Get channel info if provided
+    channel_name = None
+    if channel:
+        channel_info = get_channel_by_id(channel)
+        if channel_info:
+            channel_name = channel_info.get("name")
 
     # Validate at least one job has tracks
     valid_jobs = []
@@ -419,7 +555,9 @@ async def create_mix(
             job_id=job_id,
             source_job_ids=valid_jobs,
             video_filename=video_filename,
-            target_duration_minutes=target_duration
+            target_duration_minutes=target_duration,
+            channel_id=channel,
+            channel_name=channel_name
         )
 
         logger.info(f"Started mix job {job_id} from {len(valid_jobs)} sources with task {task.id}")
@@ -429,7 +567,9 @@ async def create_mix(
             "message": f"Mix creation started from {len(valid_jobs)} jobs ({total_available_tracks} tracks available). Use /status/{job_id} to check progress.",
             "status": "pending",
             "source_jobs": valid_jobs,
-            "target_duration_minutes": target_duration
+            "target_duration_minutes": target_duration,
+            "channel_id": channel,
+            "channel_name": channel_name
         }
 
     except Exception as e:
@@ -449,6 +589,7 @@ async def start_generation(
     style: Optional[str] = Form(None),
     title: Optional[str] = Form(None),
     concurrent_tracks: int = Form(1),
+    channel: Optional[str] = Form(None),  # Channel ID for the generated content
 ):
     """
     Start a new music video generation job.
@@ -457,10 +598,18 @@ async def start_generation(
     - Provide a prompt for music generation
     - Provide your Kie AI API key
     - Optional: customize generation settings
+    - Optional: specify channel for the output
     """
     # Validate API key
     if not api_key or len(api_key) < 10:
         raise HTTPException(status_code=400, detail="Invalid API key")
+
+    # Get channel info if provided
+    channel_name = None
+    if channel:
+        channel_info = get_channel_by_id(channel)
+        if channel_info:
+            channel_name = channel_info.get("name")
 
     # Validate prompt
     if not prompt or len(prompt.strip()) < 3:
@@ -528,10 +677,12 @@ async def start_generation(
             model=model,
             style=style,
             title=title,
-            concurrent_tracks=concurrent_tracks
+            concurrent_tracks=concurrent_tracks,
+            channel_id=channel,
+            channel_name=channel_name
         )
 
-        logger.info(f"Started job {job_id} with task {task.id}")
+        logger.info(f"Started job {job_id} with task {task.id} (channel: {channel})")
 
         return GenerateResponse(
             job_id=job_id,

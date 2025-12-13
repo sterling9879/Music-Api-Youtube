@@ -708,6 +708,67 @@
             color: var(--secondary);
             font-weight: 600;
         }
+
+        /* Channel styles */
+        .channel-selector {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .channel-selector select {
+            flex: 1;
+        }
+
+        .channel-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: var(--primary);
+            color: white;
+        }
+
+        .channel-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .channel-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem;
+            background: var(--surface-light);
+            border-radius: 8px;
+        }
+
+        .channel-item-info {
+            flex: 1;
+        }
+
+        .channel-item-name {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .channel-item-meta {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .create-channel-form {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .create-channel-form input {
+            flex: 1;
+        }
     </style>
 </head>
 <body>
@@ -722,6 +783,7 @@
             <button class="tab-btn active" data-tab="generate">Generate</button>
             <button class="tab-btn" data-tab="mix">Mix</button>
             <button class="tab-btn" data-tab="history">History</button>
+            <button class="tab-btn" data-tab="channels">Channels</button>
         </div>
 
         <!-- Generate Tab -->
@@ -736,6 +798,15 @@
                             Get your API key at <a href="https://kie.ai/api-key" target="_blank">kie.ai/api-key</a>
                         </p>
                         <input type="password" id="api-key" name="api_key" placeholder="Enter your Kie AI API key" required>
+                    </div>
+
+                    <!-- Channel Selector -->
+                    <div class="form-group">
+                        <label for="generate-channel">Channel <span class="label-hint">(Select which YouTube channel this music is for)</span></label>
+                        <select id="generate-channel" name="channel">
+                            <option value="">No channel (unassigned)</option>
+                        </select>
+                        <small style="color: var(--text-muted);">Create channels in the Channels tab to organize music by YouTube channel</small>
                     </div>
 
                     <!-- Music Prompt -->
@@ -910,6 +981,24 @@
                 </p>
 
                 <form id="mix-form">
+                    <!-- Channel Selector for Mix Output -->
+                    <div class="form-group">
+                        <label for="mix-channel">Output Channel <span class="label-hint">(Which YouTube channel is this mix for?)</span></label>
+                        <select id="mix-channel" name="channel">
+                            <option value="">No channel (unassigned)</option>
+                        </select>
+                    </div>
+
+                    <!-- Source Channel Filter -->
+                    <div class="form-group">
+                        <label for="mix-source-channel">Filter Source Jobs by Channel <span class="label-hint">(Optional - filter tracks from a specific channel)</span></label>
+                        <div class="channel-selector">
+                            <select id="mix-source-channel" onchange="loadJobsForMix()">
+                                <option value="">All channels</option>
+                            </select>
+                        </div>
+                    </div>
+
                     <!-- Job Selection -->
                     <div class="form-group">
                         <label>Select Source Jobs <span class="label-hint">(Check the jobs to include tracks from)</span></label>
@@ -1043,10 +1132,57 @@
                     </button>
                 </div>
 
+                <!-- Channel Filter for History -->
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label for="history-channel-filter">Filter by Channel</label>
+                    <div class="channel-selector">
+                        <select id="history-channel-filter" onchange="loadHistory()">
+                            <option value="">All channels</option>
+                        </select>
+                    </div>
+                </div>
+
                 <div id="history-container">
                     <div class="empty-state">
                         <div class="empty-state-icon">📂</div>
                         <p>No generation history yet</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Channels Tab -->
+        <div id="channels-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Manage Channels</h2>
+                    <button class="refresh-btn" onclick="loadChannels()" title="Refresh">
+                        🔄
+                    </button>
+                </div>
+
+                <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
+                    Create channels to organize your music by YouTube channel. This helps avoid copyright strikes when reusing music across different channels.
+                </p>
+
+                <!-- Create Channel Form -->
+                <div class="form-group">
+                    <label>Create New Channel</label>
+                    <div class="create-channel-form">
+                        <input type="text" id="new-channel-name" placeholder="Channel name (e.g., My Gaming Channel)">
+                        <button type="button" class="btn btn-primary" onclick="createChannel()">Create</button>
+                    </div>
+                </div>
+
+                <!-- Channels List -->
+                <div class="form-group">
+                    <label>Your Channels</label>
+                    <div id="channels-list" class="channel-list">
+                        <div class="empty-state" style="padding: 2rem;">
+                            <div class="empty-state-icon">📺</div>
+                            <p>No channels created yet</p>
+                            <p style="font-size: 0.85rem; margin-top: 0.5rem;">Create a channel above to start organizing your music</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1081,6 +1217,9 @@
         let mixLogsInterval = null;
         let availableJobsForMix = [];
 
+        // Channels State
+        let channels = [];
+
         // DOM elements
         const form = document.getElementById('generate-form');
         const formSection = document.getElementById('form-section');
@@ -1107,6 +1246,8 @@
                     loadHistory();
                 } else if (btn.dataset.tab === 'mix') {
                     loadJobsForMix();
+                } else if (btn.dataset.tab === 'channels') {
+                    loadChannels();
                 }
             });
         });
@@ -1149,6 +1290,12 @@
             e.preventDefault();
 
             const formData = new FormData(form);
+
+            // Add channel if selected
+            const selectedChannel = document.getElementById('generate-channel').value;
+            if (selectedChannel) {
+                formData.set('channel', selectedChannel);
+            }
 
             // Validate
             if (!formData.get('api_key')) {
@@ -1395,8 +1542,15 @@
             const container = document.getElementById('history-container');
             container.innerHTML = '<p style="text-align: center; color: var(--text-muted);">Loading...</p>';
 
+            // Get channel filter
+            const channelFilter = document.getElementById('history-channel-filter').value;
+            let url = '/jobs?limit=50';
+            if (channelFilter) {
+                url += `&channel=${encodeURIComponent(channelFilter)}`;
+            }
+
             try {
-                const response = await fetch('/jobs?limit=50');
+                const response = await fetch(url);
                 const data = await response.json();
 
                 if (data.jobs.length === 0) {
@@ -1414,6 +1568,7 @@
                         <thead>
                             <tr>
                                 <th>Prompt</th>
+                                <th>Channel</th>
                                 <th>Status</th>
                                 <th>Tracks</th>
                                 <th>Duration</th>
@@ -1424,8 +1579,11 @@
                         <tbody>
                             ${data.jobs.map(job => `
                                 <tr>
-                                    <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                    <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                                         ${escapeHtml(job.prompt || 'N/A')}
+                                    </td>
+                                    <td>
+                                        ${job.channel_name ? `<span class="channel-badge">${escapeHtml(job.channel_name)}</span>` : '<span style="color: var(--text-muted);">-</span>'}
                                     </td>
                                     <td>
                                         <span class="status-badge ${job.status}">${job.status}</span>
@@ -1646,8 +1804,15 @@
             const container = document.getElementById('mix-jobs-list');
             container.innerHTML = '<div class="empty-state" style="padding: 1rem;"><p>Loading available jobs...</p></div>';
 
+            // Get channel filter
+            const channelFilter = document.getElementById('mix-source-channel').value;
+            let url = '/jobs-with-tracks';
+            if (channelFilter) {
+                url += `?channel=${encodeURIComponent(channelFilter)}`;
+            }
+
             try {
-                const response = await fetch('/jobs-with-tracks');
+                const response = await fetch(url);
                 const data = await response.json();
 
                 availableJobsForMix = data.jobs;
@@ -1677,7 +1842,11 @@
                         <div class="job-select-item" onclick="toggleJobSelection('${job.job_id}')">
                             <input type="checkbox" class="job-checkbox" value="${job.job_id}" onchange="updateSelectedTracksCount()">
                             <div class="job-select-info">
-                                <div class="job-select-prompt">${escapeHtml(job.prompt || 'No prompt')} ${job.job_type === 'mix' ? '(Mix)' : ''}</div>
+                                <div class="job-select-prompt">
+                                    ${escapeHtml(job.prompt || 'No prompt')}
+                                    ${job.job_type === 'mix' ? '(Mix)' : ''}
+                                    ${job.channel_name ? `<span class="channel-badge" style="margin-left: 0.5rem;">${escapeHtml(job.channel_name)}</span>` : ''}
+                                </div>
                                 <div class="job-select-meta">
                                     <span>${formatDate(job.created_at)}</span>
                                     <span>${job.total_duration}</span>
@@ -1759,10 +1928,16 @@
             mixSubmitBtn.disabled = true;
             mixSubmitText.innerHTML = '<span class="spinner"></span> Creating mix...';
 
+            // Get selected channel
+            const mixChannel = document.getElementById('mix-channel').value;
+
             const formData = new FormData();
             formData.append('video', videoFile);
             formData.append('job_ids', selectedJobIds.join(','));
             formData.append('target_duration', targetDuration);
+            if (mixChannel) {
+                formData.append('channel', mixChannel);
+            }
 
             try {
                 const response = await fetch('/mix', {
@@ -1967,6 +2142,147 @@
             // Reload jobs for mix
             loadJobsForMix();
         }
+
+        // ==================== CHANNELS FUNCTIONS ====================
+
+        // Load channels from API
+        async function loadChannels() {
+            try {
+                const response = await fetch('/channels');
+                const data = await response.json();
+                channels = data.channels || [];
+
+                // Update channels list display
+                renderChannelsList();
+
+                // Update all channel dropdowns
+                updateChannelDropdowns();
+
+            } catch (error) {
+                console.error('Error loading channels:', error);
+                channels = [];
+            }
+        }
+
+        // Render channels list in the Channels tab
+        function renderChannelsList() {
+            const container = document.getElementById('channels-list');
+
+            if (channels.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state" style="padding: 2rem;">
+                        <div class="empty-state-icon">📺</div>
+                        <p>No channels created yet</p>
+                        <p style="font-size: 0.85rem; margin-top: 0.5rem;">Create a channel above to start organizing your music</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = channels.map(ch => `
+                <div class="channel-item">
+                    <div class="channel-item-info">
+                        <div class="channel-item-name">${escapeHtml(ch.name)}</div>
+                        <div class="channel-item-meta">
+                            ID: ${ch.id} | Created: ${formatDate(ch.created_at)}
+                        </div>
+                    </div>
+                    <button class="btn btn-danger btn-sm" onclick="deleteChannel('${ch.id}')">Delete</button>
+                </div>
+            `).join('');
+        }
+
+        // Update all channel dropdown menus
+        function updateChannelDropdowns() {
+            const dropdowns = [
+                'generate-channel',
+                'mix-channel',
+                'mix-source-channel',
+                'history-channel-filter'
+            ];
+
+            dropdowns.forEach(id => {
+                const select = document.getElementById(id);
+                if (!select) return;
+
+                // Keep the first option (No channel / All channels)
+                const firstOption = select.options[0];
+
+                // Clear and re-add first option
+                select.innerHTML = '';
+                select.appendChild(firstOption);
+
+                // Add channel options
+                channels.forEach(ch => {
+                    const option = document.createElement('option');
+                    option.value = ch.id;
+                    option.textContent = ch.name;
+                    select.appendChild(option);
+                });
+            });
+        }
+
+        // Create a new channel
+        async function createChannel() {
+            const nameInput = document.getElementById('new-channel-name');
+            const name = nameInput.value.trim();
+
+            if (!name) {
+                alert('Please enter a channel name');
+                return;
+            }
+
+            try {
+                const formData = new FormData();
+                formData.append('name', name);
+
+                const response = await fetch('/channels', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to create channel');
+                }
+
+                // Clear input and reload channels
+                nameInput.value = '';
+                await loadChannels();
+
+                alert(`Channel "${name}" created successfully!`);
+
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        // Delete a channel
+        async function deleteChannel(channelId) {
+            if (!confirm('Are you sure you want to delete this channel? Jobs will NOT be deleted, they will just become unassigned.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/channels/${channelId}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.detail || 'Failed to delete channel');
+                }
+
+                await loadChannels();
+
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        // Load channels on page load
+        loadChannels();
     </script>
 </body>
 </html>

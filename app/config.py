@@ -11,6 +11,7 @@ BASE_DIR = Path(__file__).parent.parent
 APP_DIR = Path(__file__).parent
 UPLOAD_DIR = APP_DIR / "uploads"
 OUTPUT_DIR = APP_DIR / "output"
+CHANNELS_FILE = APP_DIR / "channels.json"
 
 # Ensure directories exist
 UPLOAD_DIR.mkdir(exist_ok=True)
