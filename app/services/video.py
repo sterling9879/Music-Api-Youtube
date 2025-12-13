@@ -207,6 +207,7 @@ class VideoProcessor:
     ) -> subprocess.CompletedProcess:
         """
         Loop video with maximum CPU and memory utilization.
+        Shows progress in real-time.
         """
         concat_file = self.work_dir / "concat_list.txt"
         with open(concat_file, "w") as f:
@@ -214,6 +215,7 @@ class VideoProcessor:
                 f.write(f"file '{input_video.absolute()}'\n")
 
         logger.info(f"Optimized encoding: {num_loops} loops, {self.threads} threads, {self.buffer_size}MB buffer")
+        logger.info(f"Target duration: {target_duration:.0f}s ({target_duration/60:.1f} min)")
 
         # Calculate x264 specific threading options
         lookahead_threads = max(1, self.threads // 4)
@@ -221,6 +223,9 @@ class VideoProcessor:
         cmd = [
             "ffmpeg",
             "-y",
+            # Show progress
+            "-progress", "pipe:1",
+            "-stats_period", "5",  # Update every 5 seconds
             # Input options - large buffer for fast reading
             "-thread_queue_size", "4096",
             "-f", "concat",
@@ -251,21 +256,93 @@ class VideoProcessor:
             str(output_path)
         ]
 
-        logger.info(f"Running FFmpeg with optimized settings...")
+        logger.info(f"Starting FFmpeg encoding...")
+        logger.info(f"=" * 50)
 
-        # Set environment for maximum resource usage
-        env = os.environ.copy()
-        env['FFREPORT'] = f'file={self.work_dir}/ffmpeg.log:level=32'
+        # Run with real-time progress output
+        import time
+        start_time = time.time()
 
-        result = subprocess.run(
+        process = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=7200,
-            env=env
+            bufsize=1
         )
 
-        concat_file.unlink(missing_ok=True)
+        # Parse progress output
+        current_time = 0
+        speed = 0
+        last_log_time = 0
+
+        try:
+            while True:
+                line = process.stdout.readline()
+                if not line and process.poll() is not None:
+                    break
+
+                line = line.strip()
+                if line.startswith("out_time_ms="):
+                    try:
+                        current_time = int(line.split("=")[1]) / 1000000  # Convert to seconds
+                    except (ValueError, IndexError):
+                        pass
+                elif line.startswith("speed="):
+                    try:
+                        speed_str = line.split("=")[1].replace("x", "").strip()
+                        if speed_str and speed_str != "N/A":
+                            speed = float(speed_str)
+                    except (ValueError, IndexError):
+                        pass
+
+                # Log progress every 10 seconds
+                elapsed = time.time() - start_time
+                if elapsed - last_log_time >= 10 and current_time > 0:
+                    last_log_time = elapsed
+                    progress_pct = (current_time / target_duration) * 100
+
+                    # Calculate ETA
+                    if speed > 0:
+                        remaining_time = (target_duration - current_time) / speed
+                        eta_min = int(remaining_time // 60)
+                        eta_sec = int(remaining_time % 60)
+                        eta_str = f"{eta_min}m {eta_sec}s"
+                    else:
+                        eta_str = "calculating..."
+
+                    logger.info(
+                        f"Progress: {progress_pct:.1f}% | "
+                        f"Encoded: {current_time/60:.1f}min / {target_duration/60:.1f}min | "
+                        f"Speed: {speed:.1f}x | "
+                        f"ETA: {eta_str} | "
+                        f"Elapsed: {elapsed/60:.1f}min"
+                    )
+
+            # Wait for process to complete
+            process.wait(timeout=7200)
+
+            elapsed = time.time() - start_time
+            logger.info(f"=" * 50)
+            logger.info(f"FFmpeg encoding completed in {elapsed/60:.1f} minutes")
+
+            # Get stderr for error checking
+            stderr = process.stderr.read()
+
+            # Create a result-like object
+            class Result:
+                def __init__(self, returncode, stderr):
+                    self.returncode = returncode
+                    self.stderr = stderr
+
+            result = Result(process.returncode, stderr)
+
+        except subprocess.TimeoutExpired:
+            process.kill()
+            raise
+        finally:
+            concat_file.unlink(missing_ok=True)
+
         return result
 
     def combine_video_audio(
