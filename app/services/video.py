@@ -171,36 +171,116 @@ class VideoProcessor:
             f"(source: {video_duration:.2f}s, target: {target_duration:.2f}s)"
         )
 
+        # For .mov files or if stream_loop fails, use filter_complex approach
+        input_ext = input_video.suffix.lower()
+
         try:
-            # Use stream_loop for efficient looping
-            result = subprocess.run(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-stream_loop", str(num_loops - 1),  # -1 because original counts as 1
-                    "-i", str(input_video),
-                    "-t", str(target_duration),  # Trim to exact duration
-                    "-c:v", "libx264",
-                    "-preset", "medium",
-                    "-crf", "23",
-                    "-an",  # Remove audio (we'll add our own)
-                    "-movflags", "+faststart",
-                    str(output_path)
-                ],
-                capture_output=True,
-                text=True,
-                timeout=3600  # 1 hour timeout for long videos
-            )
+            if input_ext == ".mov" or num_loops > 100:
+                # For MOV files, first convert to MP4, then loop
+                # This is more reliable than stream_loop with MOV
+                logger.info("Using filter-based looping for MOV file...")
+
+                # Method: Use loop filter which is more compatible
+                result = subprocess.run(
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-i", str(input_video),
+                        "-filter_complex",
+                        f"[0:v]loop=loop={num_loops}:size={int(video_duration * fps)}:start=0[v]",
+                        "-map", "[v]",
+                        "-t", str(target_duration),
+                        "-c:v", "libx264",
+                        "-preset", "fast",  # Faster encoding for long videos
+                        "-crf", "23",
+                        "-pix_fmt", "yuv420p",  # Ensure compatibility
+                        "-movflags", "+faststart",
+                        str(output_path)
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=7200  # 2 hour timeout for long videos
+                )
+
+                # If loop filter fails, try concat approach
+                if result.returncode != 0:
+                    logger.warning(f"Loop filter failed, trying concat approach: {result.stderr}")
+                    result = self._loop_with_concat(input_video, target_duration, output_path, num_loops)
+            else:
+                # Use stream_loop for MP4/other formats (faster)
+                result = subprocess.run(
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-stream_loop", str(num_loops - 1),
+                        "-i", str(input_video),
+                        "-t", str(target_duration),
+                        "-c:v", "libx264",
+                        "-preset", "fast",
+                        "-crf", "23",
+                        "-pix_fmt", "yuv420p",
+                        "-an",
+                        "-movflags", "+faststart",
+                        str(output_path)
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=7200
+                )
 
             if result.returncode != 0:
                 logger.error(f"FFmpeg loop error: {result.stderr}")
-                raise VideoProcessingError(f"Video looping failed: {result.stderr}")
+                raise VideoProcessingError(f"Video looping failed: {result.stderr[-500:]}")
 
             logger.info(f"Created looped video at {output_path}")
             return output_path
 
         except subprocess.TimeoutExpired:
-            raise VideoProcessingError("Video looping timeout")
+            raise VideoProcessingError("Video looping timeout (exceeded 2 hours)")
+
+    def _loop_with_concat(
+        self,
+        input_video: Path,
+        target_duration: float,
+        output_path: Path,
+        num_loops: int
+    ) -> subprocess.CompletedProcess:
+        """
+        Loop video using concat demuxer (fallback method).
+        """
+        # Create a concat file
+        concat_file = self.work_dir / "concat_list.txt"
+        with open(concat_file, "w") as f:
+            for _ in range(num_loops):
+                f.write(f"file '{input_video.absolute()}'\n")
+
+        logger.info(f"Using concat method with {num_loops} repetitions...")
+
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", str(concat_file),
+                "-t", str(target_duration),
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "23",
+                "-pix_fmt", "yuv420p",
+                "-an",
+                "-movflags", "+faststart",
+                str(output_path)
+            ],
+            capture_output=True,
+            text=True,
+            timeout=7200
+        )
+
+        # Cleanup concat file
+        concat_file.unlink(missing_ok=True)
+
+        return result
 
     def combine_video_audio(
         self,
