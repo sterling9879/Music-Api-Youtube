@@ -1,5 +1,6 @@
 """
 Video processing service for looping videos and combining with audio.
+Optimized for HD output and fast encoding.
 """
 
 import subprocess
@@ -11,6 +12,11 @@ from typing import Optional, Tuple
 from app.config import ALLOWED_VIDEO_EXTENSIONS
 
 logger = logging.getLogger(__name__)
+
+# HD Output settings
+HD_WIDTH = 1920
+HD_HEIGHT = 1080
+OUTPUT_FPS = 30
 
 
 class VideoProcessingError(Exception):
@@ -126,8 +132,17 @@ def validate_video_format(file_path: Path) -> bool:
         raise VideoProcessingError("Video validation timeout")
 
 
+def get_cpu_threads() -> int:
+    """Get number of CPU threads for encoding."""
+    try:
+        import os
+        return max(1, os.cpu_count() - 1)  # Leave one core free
+    except Exception:
+        return 4
+
+
 class VideoProcessor:
-    """Service for processing video files."""
+    """Service for processing video files with HD output optimization."""
 
     def __init__(self, work_dir: Path):
         """
@@ -138,6 +153,7 @@ class VideoProcessor:
         """
         self.work_dir = work_dir
         self.work_dir.mkdir(parents=True, exist_ok=True)
+        self.threads = get_cpu_threads()
 
     def loop_video_to_duration(
         self,
@@ -147,6 +163,7 @@ class VideoProcessor:
     ) -> Path:
         """
         Create a looped video that matches the target duration.
+        Outputs in HD 1080p with optimized encoding.
 
         Args:
             input_video: Path to the input video
@@ -168,85 +185,41 @@ class VideoProcessor:
 
         logger.info(
             f"Looping video {num_loops} times "
-            f"(source: {video_duration:.2f}s, target: {target_duration:.2f}s)"
+            f"(source: {video_duration:.2f}s @ {width}x{height}, target: {target_duration:.2f}s @ {HD_WIDTH}x{HD_HEIGHT})"
         )
 
-        # For .mov files or if stream_loop fails, use filter_complex approach
         input_ext = input_video.suffix.lower()
 
+        # Build scale filter to ensure HD output
+        # Use scale with pad to maintain aspect ratio and fit HD frame
+        scale_filter = f"scale={HD_WIDTH}:{HD_HEIGHT}:force_original_aspect_ratio=decrease,pad={HD_WIDTH}:{HD_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black,setsar=1"
+
         try:
-            if input_ext == ".mov" or num_loops > 100:
-                # For MOV files, first convert to MP4, then loop
-                # This is more reliable than stream_loop with MOV
-                logger.info("Using filter-based looping for MOV file...")
-
-                # Method: Use loop filter which is more compatible
-                result = subprocess.run(
-                    [
-                        "ffmpeg",
-                        "-y",
-                        "-i", str(input_video),
-                        "-filter_complex",
-                        f"[0:v]loop=loop={num_loops}:size={int(video_duration * fps)}:start=0[v]",
-                        "-map", "[v]",
-                        "-t", str(target_duration),
-                        "-c:v", "libx264",
-                        "-preset", "fast",  # Faster encoding for long videos
-                        "-crf", "23",
-                        "-pix_fmt", "yuv420p",  # Ensure compatibility
-                        "-movflags", "+faststart",
-                        str(output_path)
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=7200  # 2 hour timeout for long videos
-                )
-
-                # If loop filter fails, try concat approach
-                if result.returncode != 0:
-                    logger.warning(f"Loop filter failed, trying concat approach: {result.stderr}")
-                    result = self._loop_with_concat(input_video, target_duration, output_path, num_loops)
-            else:
-                # Use stream_loop for MP4/other formats (faster)
-                result = subprocess.run(
-                    [
-                        "ffmpeg",
-                        "-y",
-                        "-stream_loop", str(num_loops - 1),
-                        "-i", str(input_video),
-                        "-t", str(target_duration),
-                        "-c:v", "libx264",
-                        "-preset", "fast",
-                        "-crf", "23",
-                        "-pix_fmt", "yuv420p",
-                        "-an",
-                        "-movflags", "+faststart",
-                        str(output_path)
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=7200
-                )
+            # Always use concat method for reliability and speed
+            result = self._loop_with_concat_hd(
+                input_video, target_duration, output_path, num_loops, scale_filter
+            )
 
             if result.returncode != 0:
                 logger.error(f"FFmpeg loop error: {result.stderr}")
                 raise VideoProcessingError(f"Video looping failed: {result.stderr[-500:]}")
 
-            logger.info(f"Created looped video at {output_path}")
+            logger.info(f"Created HD looped video at {output_path}")
             return output_path
 
         except subprocess.TimeoutExpired:
             raise VideoProcessingError("Video looping timeout (exceeded 2 hours)")
 
-    def _loop_with_concat(
+    def _loop_with_concat_hd(
         self,
         input_video: Path,
         target_duration: float,
         output_path: Path,
-        num_loops: int
+        num_loops: int,
+        scale_filter: str
     ) -> subprocess.CompletedProcess:
         """
-        Loop video using concat demuxer (fallback method).
+        Loop video using concat demuxer with HD scaling - fast and reliable.
         """
         # Create a concat file
         concat_file = self.work_dir / "concat_list.txt"
@@ -254,7 +227,8 @@ class VideoProcessor:
             for _ in range(num_loops):
                 f.write(f"file '{input_video.absolute()}'\n")
 
-        logger.info(f"Using concat method with {num_loops} repetitions...")
+        logger.info(f"Using optimized HD concat method with {num_loops} repetitions...")
+        logger.info(f"Output: {HD_WIDTH}x{HD_HEIGHT} @ {OUTPUT_FPS}fps, using {self.threads} threads")
 
         result = subprocess.run(
             [
@@ -264,17 +238,27 @@ class VideoProcessor:
                 "-safe", "0",
                 "-i", str(concat_file),
                 "-t", str(target_duration),
+                # Video filters: scale to HD, set framerate
+                "-vf", f"{scale_filter},fps={OUTPUT_FPS}",
+                # Fast H.264 encoding optimized for speed
                 "-c:v", "libx264",
-                "-preset", "fast",
-                "-crf", "23",
+                "-preset", "veryfast",  # Much faster than "fast"
+                "-tune", "film",  # Optimize for video content
+                "-crf", "20",  # Good quality (lower = better, 18-23 is good)
+                "-profile:v", "high",  # High profile for better compression
+                "-level", "4.1",  # Compatible with most devices
                 "-pix_fmt", "yuv420p",
+                # Threading for speed
+                "-threads", str(self.threads),
+                # No audio (will be added later)
                 "-an",
+                # Fast seeking
                 "-movflags", "+faststart",
                 str(output_path)
             ],
             capture_output=True,
             text=True,
-            timeout=7200
+            timeout=7200  # 2 hour timeout
         )
 
         # Cleanup concat file
@@ -291,6 +275,7 @@ class VideoProcessor:
     ) -> Path:
         """
         Combine video and audio into final output.
+        Uses stream copy for video (instant) since video is already encoded.
 
         Args:
             video_path: Path to the video file
@@ -302,19 +287,23 @@ class VideoProcessor:
             Path to the combined file
         """
         try:
-            # Build FFmpeg command
+            logger.info(f"Combining video and audio (video codec: {video_codec})...")
+
+            # Build FFmpeg command - use copy for instant muxing
             cmd = [
                 "ffmpeg",
                 "-y",
                 "-i", str(video_path),
                 "-i", str(audio_path),
-                "-c:v", video_codec,
+                "-c:v", video_codec,  # Copy video stream (no re-encoding)
                 "-c:a", "aac",
-                "-b:a", "320k",
+                "-b:a", "320k",  # High quality audio
+                "-ar", "48000",  # 48kHz audio sample rate
                 "-map", "0:v:0",
                 "-map", "1:a:0",
                 "-shortest",
                 "-movflags", "+faststart",
+                "-threads", str(self.threads),
                 str(output_path)
             ]
 
@@ -322,14 +311,14 @@ class VideoProcessor:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=7200  # 2 hour timeout
+                timeout=3600  # 1 hour should be enough for muxing
             )
 
             if result.returncode != 0:
                 logger.error(f"FFmpeg combine error: {result.stderr}")
                 raise VideoProcessingError(f"Video/audio combining failed: {result.stderr}")
 
-            logger.info(f"Created combined video at {output_path}")
+            logger.info(f"Created final HD video at {output_path}")
             return output_path
 
         except subprocess.TimeoutExpired:
@@ -343,7 +332,7 @@ class VideoProcessor:
         output_path: Path
     ) -> Path:
         """
-        Complete video processing: loop video and combine with audio.
+        Complete video processing: loop video in HD and combine with audio.
 
         Args:
             input_video: Original video file
@@ -352,19 +341,25 @@ class VideoProcessor:
             output_path: Final output path
 
         Returns:
-            Path to the final video
+            Path to the final HD video
         """
-        # Create looped video
+        logger.info(f"Starting HD video processing pipeline...")
+        logger.info(f"Input: {input_video}")
+        logger.info(f"Target duration: {audio_duration:.2f}s ({audio_duration/60:.1f} min)")
+        logger.info(f"Output resolution: {HD_WIDTH}x{HD_HEIGHT}")
+
+        # Create looped HD video
         looped_video = self.work_dir / "looped_video.mp4"
         self.loop_video_to_duration(input_video, audio_duration, looped_video)
 
-        # Combine with audio
+        # Combine with audio (fast - just muxing)
         self.combine_video_audio(looped_video, audio_path, output_path)
 
         # Cleanup looped video
         if looped_video.exists():
             looped_video.unlink()
 
+        logger.info(f"HD video processing complete: {output_path}")
         return output_path
 
     def extract_thumbnail(
