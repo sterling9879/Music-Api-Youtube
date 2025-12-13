@@ -4,13 +4,14 @@ FastAPI application for AI Music Video Generator.
 
 import uuid
 import logging
+import json
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.models import (
@@ -22,7 +23,7 @@ from app.api.models import (
     TrackInfo,
     ErrorResponse,
 )
-from app.workers.tasks import generate_music_video
+from app.workers.tasks import generate_music_video, create_mix_video
 from app.workers.celery_app import celery_app
 from app.config import (
     UPLOAD_DIR,
@@ -68,6 +69,375 @@ async def root():
     return FileResponse(str(STATIC_DIR / "index.html"))
 
 
+@app.get("/jobs")
+async def list_jobs(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0)
+):
+    """
+    List all jobs with their metadata (history).
+    """
+    jobs = []
+
+    if not OUTPUT_DIR.exists():
+        return {"jobs": [], "total": 0}
+
+    # Get all job directories
+    job_dirs = sorted(
+        [d for d in OUTPUT_DIR.iterdir() if d.is_dir()],
+        key=lambda x: x.stat().st_mtime,
+        reverse=True
+    )
+
+    total = len(job_dirs)
+
+    # Apply pagination
+    job_dirs = job_dirs[offset:offset + limit]
+
+    for job_dir in job_dirs:
+        metadata_path = job_dir / "metadata.json"
+        if metadata_path.exists():
+            try:
+                with open(metadata_path) as f:
+                    metadata = json.load(f)
+
+                # Check for tracks directory
+                tracks_dir = job_dir / "tracks"
+                tracks_count = len(list(tracks_dir.glob("*.mp3"))) if tracks_dir.exists() else 0
+
+                # Check for logs
+                has_logs = (job_dir / "logs.txt").exists()
+
+                # Check for output files
+                has_video = (job_dir / "final_video.mp4").exists()
+                has_audio = (job_dir / "final_audio.mp3").exists()
+
+                jobs.append({
+                    "job_id": metadata.get("job_id", job_dir.name),
+                    "prompt": metadata.get("prompt", "")[:100],
+                    "status": metadata.get("status", "unknown"),
+                    "created_at": metadata.get("created_at"),
+                    "completed_at": metadata.get("completed_at"),
+                    "total_tracks": metadata.get("total_tracks", tracks_count),
+                    "total_duration": metadata.get("total_duration", "00:00:00"),
+                    "model": metadata.get("model", "V4"),
+                    "has_video": has_video,
+                    "has_audio": has_audio,
+                    "has_logs": has_logs,
+                    "tracks_available": tracks_count
+                })
+            except Exception as e:
+                logger.error(f"Error reading metadata for {job_dir}: {e}")
+                jobs.append({
+                    "job_id": job_dir.name,
+                    "status": "unknown",
+                    "error": str(e)
+                })
+
+    return {"jobs": jobs, "total": total, "limit": limit, "offset": offset}
+
+
+@app.get("/jobs/{job_id}")
+async def get_job_details(job_id: str):
+    """
+    Get detailed information about a specific job.
+    """
+    job_dir = OUTPUT_DIR / job_id
+    metadata_path = job_dir / "metadata.json"
+
+    if not metadata_path.exists():
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    try:
+        with open(metadata_path) as f:
+            metadata = json.load(f)
+
+        # Add tracks list
+        tracks_dir = job_dir / "tracks"
+        tracks = []
+        if tracks_dir.exists():
+            for track_file in sorted(tracks_dir.glob("*.mp3")):
+                tracks.append({
+                    "filename": track_file.name,
+                    "size_bytes": track_file.stat().st_size,
+                    "size_mb": round(track_file.stat().st_size / (1024 * 1024), 2)
+                })
+
+        metadata["tracks_files"] = tracks
+
+        # Check for output files
+        metadata["has_video"] = (job_dir / "final_video.mp4").exists()
+        metadata["has_audio"] = (job_dir / "final_audio.mp3").exists()
+        metadata["has_logs"] = (job_dir / "logs.txt").exists()
+
+        # Get file sizes
+        if metadata["has_video"]:
+            video_size = (job_dir / "final_video.mp4").stat().st_size
+            metadata["video_size_mb"] = round(video_size / (1024 * 1024), 2)
+
+        if metadata["has_audio"]:
+            audio_size = (job_dir / "final_audio.mp3").stat().st_size
+            metadata["audio_size_mb"] = round(audio_size / (1024 * 1024), 2)
+
+        return metadata
+
+    except Exception as e:
+        logger.error(f"Error reading job details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/jobs/{job_id}/logs")
+async def get_job_logs(
+    job_id: str,
+    tail: int = Query(None, ge=1, le=1000, description="Get last N lines")
+):
+    """
+    Get logs for a specific job.
+    """
+    job_dir = OUTPUT_DIR / job_id
+    logs_path = job_dir / "logs.txt"
+
+    if not logs_path.exists():
+        raise HTTPException(status_code=404, detail="Logs not found")
+
+    try:
+        with open(logs_path, "r", encoding="utf-8") as f:
+            if tail:
+                # Read last N lines
+                lines = f.readlines()
+                content = "".join(lines[-tail:])
+            else:
+                content = f.read()
+
+        return PlainTextResponse(content)
+
+    except Exception as e:
+        logger.error(f"Error reading logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/jobs/{job_id}/tracks")
+async def list_job_tracks(job_id: str):
+    """
+    List all individual tracks for a job.
+    """
+    job_dir = OUTPUT_DIR / job_id
+    tracks_dir = job_dir / "tracks"
+    metadata_path = job_dir / "metadata.json"
+
+    if not job_dir.exists():
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    tracks = []
+
+    # Get track info from metadata
+    tracks_info = {}
+    if metadata_path.exists():
+        try:
+            with open(metadata_path) as f:
+                metadata = json.load(f)
+                for track in metadata.get("tracks_info", []):
+                    tracks_info[track.get("filename")] = track
+        except Exception:
+            pass
+
+    # List track files
+    if tracks_dir.exists():
+        for track_file in sorted(tracks_dir.glob("*.mp3")):
+            info = tracks_info.get(track_file.name, {})
+            tracks.append({
+                "filename": track_file.name,
+                "track_number": info.get("track_number", 0),
+                "title": info.get("title", track_file.stem),
+                "duration_seconds": info.get("duration_seconds", 0),
+                "duration_formatted": info.get("duration_formatted", "00:00:00"),
+                "size_bytes": track_file.stat().st_size,
+                "size_mb": round(track_file.stat().st_size / (1024 * 1024), 2),
+                "download_url": f"/jobs/{job_id}/tracks/{track_file.name}"
+            })
+
+    return {"job_id": job_id, "tracks": tracks, "total": len(tracks)}
+
+
+@app.get("/jobs/{job_id}/tracks/{filename}")
+async def download_track(job_id: str, filename: str):
+    """
+    Download a specific track from a job.
+    """
+    # Sanitize filename
+    if ".." in filename or "/" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    track_path = OUTPUT_DIR / job_id / "tracks" / filename
+
+    if not track_path.exists():
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    return FileResponse(
+        path=str(track_path),
+        media_type="audio/mpeg",
+        filename=filename
+    )
+
+
+@app.get("/jobs-with-tracks")
+async def list_jobs_with_tracks():
+    """
+    List all jobs that have tracks available for mixing.
+    """
+    jobs = []
+
+    if not OUTPUT_DIR.exists():
+        return {"jobs": []}
+
+    # Get all job directories
+    job_dirs = sorted(
+        [d for d in OUTPUT_DIR.iterdir() if d.is_dir()],
+        key=lambda x: x.stat().st_mtime,
+        reverse=True
+    )
+
+    for job_dir in job_dirs:
+        tracks_dir = job_dir / "tracks"
+        if not tracks_dir.exists():
+            continue
+
+        track_files = list(tracks_dir.glob("*.mp3"))
+        if not track_files:
+            continue
+
+        metadata_path = job_dir / "metadata.json"
+        job_info = {
+            "job_id": job_dir.name,
+            "tracks_count": len(track_files),
+            "prompt": "",
+            "created_at": None,
+            "total_duration": "00:00:00"
+        }
+
+        if metadata_path.exists():
+            try:
+                with open(metadata_path) as f:
+                    metadata = json.load(f)
+                    job_info["prompt"] = metadata.get("prompt", "")[:100]
+                    job_info["created_at"] = metadata.get("created_at")
+                    job_info["total_duration"] = metadata.get("total_duration", "00:00:00")
+                    job_info["job_type"] = metadata.get("job_type", "generate")
+            except Exception:
+                pass
+
+        jobs.append(job_info)
+
+    return {"jobs": jobs}
+
+
+@app.post("/mix")
+async def create_mix(
+    video: UploadFile = File(...),
+    job_ids: str = Form(...),  # Comma-separated job IDs
+    target_duration: int = Form(120),  # Target duration in minutes
+):
+    """
+    Create a mix video from tracks of selected jobs.
+
+    - Upload a video file
+    - Provide comma-separated job IDs to source tracks from
+    - Optionally specify target duration in minutes (default: 120)
+    """
+    # Parse job IDs
+    source_job_ids = [jid.strip() for jid in job_ids.split(",") if jid.strip()]
+
+    if not source_job_ids:
+        raise HTTPException(status_code=400, detail="No job IDs provided")
+
+    # Validate at least one job has tracks
+    valid_jobs = []
+    total_available_tracks = 0
+    for job_id in source_job_ids:
+        tracks_dir = OUTPUT_DIR / job_id / "tracks"
+        if tracks_dir.exists():
+            track_count = len(list(tracks_dir.glob("*.mp3")))
+            if track_count > 0:
+                valid_jobs.append(job_id)
+                total_available_tracks += track_count
+
+    if not valid_jobs:
+        raise HTTPException(
+            status_code=400,
+            detail="None of the selected jobs have tracks available"
+        )
+
+    # Validate video file
+    if not video.filename:
+        raise HTTPException(status_code=400, detail="No video file provided")
+
+    file_ext = Path(video.filename).suffix.lower()
+    if file_ext not in ALLOWED_VIDEO_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid video format. Allowed: {', '.join(ALLOWED_VIDEO_EXTENSIONS)}"
+        )
+
+    # Validate target duration
+    target_duration = max(5, min(180, target_duration))  # 5 min to 3 hours
+
+    # Generate job ID
+    job_id = str(uuid.uuid4())
+
+    # Save uploaded video
+    video_filename = f"{job_id}{file_ext}"
+    video_path = UPLOAD_DIR / video_filename
+
+    try:
+        content = await video.read()
+        if len(content) > MAX_UPLOAD_SIZE_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Video file too large. Maximum size: {MAX_UPLOAD_SIZE_BYTES // (1024*1024)}MB"
+            )
+
+        video_path.write_bytes(content)
+        logger.info(f"Saved video for mix to {video_path}")
+
+        # Validate video file
+        try:
+            validate_video_format(video_path)
+        except VideoProcessingError as e:
+            video_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail=str(e))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        video_path.unlink(missing_ok=True)
+        logger.error(f"Failed to save video: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save video file")
+
+    # Start Celery task
+    try:
+        task = create_mix_video.delay(
+            job_id=job_id,
+            source_job_ids=valid_jobs,
+            video_filename=video_filename,
+            target_duration_minutes=target_duration
+        )
+
+        logger.info(f"Started mix job {job_id} from {len(valid_jobs)} sources with task {task.id}")
+
+        return {
+            "job_id": job_id,
+            "message": f"Mix creation started from {len(valid_jobs)} jobs ({total_available_tracks} tracks available). Use /status/{job_id} to check progress.",
+            "status": "pending",
+            "source_jobs": valid_jobs,
+            "target_duration_minutes": target_duration
+        }
+
+    except Exception as e:
+        video_path.unlink(missing_ok=True)
+        logger.error(f"Failed to start mix task: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start mix task")
+
+
 @app.post("/generate", response_model=GenerateResponse)
 async def start_generation(
     video: UploadFile = File(...),
@@ -78,6 +448,7 @@ async def start_generation(
     model: str = Form("V4"),
     style: Optional[str] = Form(None),
     title: Optional[str] = Form(None),
+    concurrent_tracks: int = Form(1),
 ):
     """
     Start a new music video generation job.
@@ -142,6 +513,9 @@ async def start_generation(
         logger.error(f"Failed to save video: {e}")
         raise HTTPException(status_code=500, detail="Failed to save video file")
 
+    # Validate concurrent_tracks
+    concurrent_tracks = max(1, min(4, concurrent_tracks))  # Limit between 1-4
+
     # Start Celery task
     try:
         task = generate_music_video.delay(
@@ -153,7 +527,8 @@ async def start_generation(
             instrumental=instrumental,
             model=model,
             style=style,
-            title=title
+            title=title,
+            concurrent_tracks=concurrent_tracks
         )
 
         logger.info(f"Started job {job_id} with task {task.id}")
@@ -175,27 +550,26 @@ async def get_status(job_id: str):
     """
     Get the status of a generation job.
     """
-    # Find the task by job_id
-    # We need to search through task results
-    task_result = None
-
     # Check if job directory exists
     job_dir = OUTPUT_DIR / job_id
     metadata_path = job_dir / "metadata.json"
 
-    # Try to get task from Celery
-    # First, check the AsyncResult
-    from celery.result import AsyncResult
-    import json
-
-    # We store job_id in the task, so we need to iterate or use a mapping
-    # For simplicity, we'll check if the job has completed by looking at files
     if metadata_path.exists():
         try:
             with open(metadata_path) as f:
                 metadata = json.load(f)
 
-            # Job completed successfully
+            status = metadata.get("status", "unknown")
+
+            # Map status to JobStatus enum
+            status_map = {
+                "processing": JobStatus.GENERATING_AUDIO,
+                "completed": JobStatus.COMPLETED,
+                "failed": JobStatus.FAILED
+            }
+            job_status = status_map.get(status, JobStatus.PENDING)
+
+            # Job completed or failed
             tracklist_path = job_dir / "tracklist.json"
             tracklist = None
             if tracklist_path.exists():
@@ -218,17 +592,22 @@ async def get_status(job_id: str):
                         tracks=tracks
                     )
 
+            # Get progress info from metadata
+            progress_stage = "completed" if status == "completed" else "failed" if status == "failed" else "processing"
+            progress_message = "Video generation completed!" if status == "completed" else metadata.get("error", "Processing...")
+
             return StatusResponse(
                 job_id=job_id,
-                status=JobStatus.COMPLETED,
+                status=job_status,
                 progress=JobProgress(
                     current_track=metadata.get("total_tracks", 0),
                     total_duration_seconds=metadata.get("total_duration_seconds", 0),
                     total_duration_formatted=metadata.get("total_duration", "00:00:00"),
-                    stage="completed",
-                    message="Video generation completed!"
+                    stage=progress_stage,
+                    message=progress_message
                 ),
                 tracklist=tracklist,
+                error=metadata.get("error"),
                 created_at=metadata.get("created_at"),
                 completed_at=metadata.get("completed_at")
             )
@@ -240,31 +619,7 @@ async def get_status(job_id: str):
     if not upload_files and not job_dir.exists():
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Task is in progress or pending - check Celery state
-    # Try to find the task by inspecting active tasks
-    inspect = celery_app.control.inspect()
-
-    # Check active tasks
-    active = inspect.active() or {}
-    reserved = inspect.reserved() or {}
-    scheduled = inspect.scheduled() or {}
-
-    task_info = None
-    task_state = None
-
-    for worker_tasks in [active, reserved, scheduled]:
-        for worker, tasks in worker_tasks.items():
-            for task in tasks:
-                if isinstance(task, dict):
-                    args = task.get("args", [])
-                    if args and len(args) > 0 and args[0] == job_id:
-                        task_info = task
-                        task_state = "PROGRESS"
-                        break
-
-    # Also check for task result directly using task ID pattern
-    # In practice, you might want to store task_id -> job_id mapping
-    # For now, return generic in-progress status if files exist
+    # Task is in progress or pending
     if upload_files:
         return StatusResponse(
             job_id=job_id,
@@ -332,7 +687,7 @@ async def download_tracklist(job_id: str):
     )
 
 
-@app.delete("/job/{job_id}")
+@app.delete("/jobs/{job_id}")
 async def delete_job(job_id: str):
     """
     Delete a job and its associated files.
