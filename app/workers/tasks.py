@@ -84,7 +84,8 @@ def generate_music_video(
     title: Optional[str] = None,
     concurrent_tracks: int = 1,
     channel_id: Optional[str] = None,
-    channel_name: Optional[str] = None
+    channel_name: Optional[str] = None,
+    target_duration_minutes: int = 120
 ):
     """
     Main task for generating music video.
@@ -134,6 +135,7 @@ def generate_music_video(
         "title": title,
         "channel_id": channel_id,
         "channel_name": channel_name,
+        "target_duration_minutes": target_duration_minutes,
         "status": "processing",
         "created_at": datetime.utcnow().isoformat(),
         "completed_at": None,
@@ -174,10 +176,12 @@ def generate_music_video(
         audio_processor = AudioProcessor(job_dir / "audio_work")
         video_processor = VideoProcessor(job_dir / "video_work", log_callback=job_logger.info)
 
-        target_duration_seconds = TARGET_DURATION_MINUTES * 60
+        # Use provided target duration, with max safety cap
+        effective_target = min(target_duration_minutes, MAX_DURATION_MINUTES)
+        target_duration_seconds = effective_target * 60
         max_duration_seconds = MAX_DURATION_MINUTES * 60
 
-        job_logger.info(f"Target duration: {TARGET_DURATION_MINUTES} minutes")
+        job_logger.info(f"Target duration: {effective_target} minutes")
         job_logger.info(f"Max duration: {MAX_DURATION_MINUTES} minutes")
         job_logger.info(f"Concurrent tracks per batch: {concurrent_tracks}")
 

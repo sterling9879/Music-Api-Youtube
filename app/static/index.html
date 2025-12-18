@@ -843,6 +843,19 @@
                         </div>
                     </div>
 
+                    <!-- Target Duration -->
+                    <div class="form-group">
+                        <label for="target-duration">Video Duration <span class="label-hint">(How long should the final video be)</span></label>
+                        <select id="target-duration" name="target_duration">
+                            <option value="30">30 minutes</option>
+                            <option value="60">1 hour</option>
+                            <option value="90">1.5 hours</option>
+                            <option value="120" selected>2 hours</option>
+                            <option value="150">2.5 hours</option>
+                            <option value="180">3 hours</option>
+                        </select>
+                    </div>
+
                     <!-- Concurrent Tracks -->
                     <div class="form-group">
                         <label for="concurrent-tracks">Parallel Requests <span class="label-hint">(Generate multiple tracks at once - faster but uses more API credits)</span></label>
@@ -1551,9 +1564,14 @@
 
             try {
                 const response = await fetch(url);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error: ${response.status}`);
+                }
+
                 const data = await response.json();
 
-                if (data.jobs.length === 0) {
+                if (!data.jobs || data.jobs.length === 0) {
                     container.innerHTML = `
                         <div class="empty-state">
                             <div class="empty-state-icon">📂</div>
@@ -1567,6 +1585,7 @@
                     <table class="history-table">
                         <thead>
                             <tr>
+                                <th>Type</th>
                                 <th>Prompt</th>
                                 <th>Channel</th>
                                 <th>Status</th>
@@ -1579,6 +1598,11 @@
                         <tbody>
                             ${data.jobs.map(job => `
                                 <tr>
+                                    <td>
+                                        <span class="status-badge ${job.job_type === 'mix' ? 'processing' : 'completed'}" style="font-size: 0.7rem;">
+                                            ${job.job_type === 'mix' ? 'MIX' : 'GEN'}
+                                        </span>
+                                    </td>
                                     <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                                         ${escapeHtml(job.prompt || 'N/A')}
                                     </td>
@@ -1604,10 +1628,12 @@
                 `;
 
             } catch (error) {
+                console.error('Error loading history:', error);
                 container.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">❌</div>
                         <p>Failed to load history</p>
+                        <p style="font-size: 0.85rem; margin-top: 0.5rem; color: var(--text-muted);">${escapeHtml(error.message)}</p>
                     </div>
                 `;
             }

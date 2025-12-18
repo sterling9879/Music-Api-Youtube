@@ -194,9 +194,14 @@ async def list_jobs(
                         continue
 
                 filtered_job_dirs.append((job_dir, metadata))
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to read metadata for {job_dir}: {e}")
                 if channel is None:  # Include broken metadata jobs only if no filter
                     filtered_job_dirs.append((job_dir, None))
+        else:
+            # No metadata file - include only if no channel filter
+            if channel is None:
+                filtered_job_dirs.append((job_dir, None))
 
     total = len(filtered_job_dirs)
 
@@ -219,7 +224,8 @@ async def list_jobs(
 
                 jobs.append({
                     "job_id": metadata.get("job_id", job_dir.name),
-                    "prompt": metadata.get("prompt", "")[:100],
+                    "job_type": metadata.get("job_type", "generate"),
+                    "prompt": metadata.get("prompt", "")[:100] if metadata.get("prompt") else "",
                     "status": metadata.get("status", "unknown"),
                     "created_at": metadata.get("created_at"),
                     "completed_at": metadata.get("completed_at"),
@@ -589,6 +595,7 @@ async def start_generation(
     style: Optional[str] = Form(None),
     title: Optional[str] = Form(None),
     concurrent_tracks: int = Form(1),
+    target_duration: int = Form(120),  # Target duration in minutes
     channel: Optional[str] = Form(None),  # Channel ID for the generated content
 ):
     """
@@ -665,6 +672,9 @@ async def start_generation(
     # Validate concurrent_tracks
     concurrent_tracks = max(1, min(4, concurrent_tracks))  # Limit between 1-4
 
+    # Validate target_duration
+    target_duration = max(30, min(180, target_duration))  # Limit between 30-180 minutes
+
     # Start Celery task
     try:
         task = generate_music_video.delay(
@@ -679,7 +689,8 @@ async def start_generation(
             title=title,
             concurrent_tracks=concurrent_tracks,
             channel_id=channel,
-            channel_name=channel_name
+            channel_name=channel_name,
+            target_duration_minutes=target_duration
         )
 
         logger.info(f"Started job {job_id} with task {task.id} (channel: {channel})")
