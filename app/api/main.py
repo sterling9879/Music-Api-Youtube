@@ -147,6 +147,62 @@ async def delete_channel(channel_id: str):
     return {"message": f"Channel '{channel_id}' deleted"}
 
 
+def get_job_info_from_directory(job_dir: Path) -> dict:
+    """
+    Extract job information from directory contents when metadata is missing or corrupt.
+    """
+    from datetime import datetime
+    import os
+
+    job_id = job_dir.name
+
+    # Check for tracks
+    tracks_dir = job_dir / "tracks"
+    tracks_count = len(list(tracks_dir.glob("*.mp3"))) if tracks_dir.exists() else 0
+
+    # Check for output files
+    has_video = (job_dir / "final_video.mp4").exists()
+    has_audio = (job_dir / "final_audio.mp3").exists()
+    has_logs = (job_dir / "logs.txt").exists()
+
+    # Determine status based on files present
+    if has_video and has_audio:
+        status = "completed"
+    elif tracks_count > 0:
+        status = "processing"
+    else:
+        status = "unknown"
+
+    # Try to get creation time from directory
+    try:
+        created_timestamp = os.path.getctime(job_dir)
+        created_at = datetime.fromtimestamp(created_timestamp).isoformat()
+    except Exception:
+        created_at = None
+
+    # Calculate total duration from track files if possible
+    total_duration = "00:00:00"
+    total_duration_seconds = 0
+
+    return {
+        "job_id": job_id,
+        "job_type": "generate",  # Default to generate
+        "prompt": "",
+        "status": status,
+        "created_at": created_at,
+        "completed_at": None,
+        "total_tracks": tracks_count,
+        "total_duration": total_duration,
+        "model": "V4",
+        "channel_id": None,
+        "channel_name": None,
+        "has_video": has_video,
+        "has_audio": has_audio,
+        "has_logs": has_logs,
+        "tracks_available": tracks_count
+    }
+
+
 # ==================== ROUTES ====================
 
 @app.get("/")
@@ -241,17 +297,15 @@ async def list_jobs(
                 })
             except Exception as e:
                 logger.error(f"Error reading metadata for {job_dir}: {e}")
-                jobs.append({
-                    "job_id": job_dir.name,
-                    "status": "unknown",
-                    "error": str(e)
-                })
+                # Try to get info from directory contents
+                job_info = get_job_info_from_directory(job_dir)
+                job_info["error"] = str(e)
+                jobs.append(job_info)
         else:
-            jobs.append({
-                "job_id": job_dir.name,
-                "status": "unknown",
-                "error": "Failed to read metadata"
-            })
+            # No metadata file - try to get info from directory contents
+            job_info = get_job_info_from_directory(job_dir)
+            job_info["error"] = "Metadata file missing"
+            jobs.append(job_info)
 
     return {"jobs": jobs, "total": total, "limit": limit, "offset": offset, "channel": channel}
 
